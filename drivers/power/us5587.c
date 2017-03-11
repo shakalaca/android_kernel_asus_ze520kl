@@ -145,8 +145,6 @@ static int us5587_probe(struct i2c_client *client,
 {
 	struct us5587_data *data;
 	int rc;
-	int ret;
-	u8 reg;
 
 	printk("[BAT][CHG] %s start\n", __FUNCTION__);
 
@@ -163,12 +161,6 @@ static int us5587_probe(struct i2c_client *client,
 
 	us5587_client = client;
 	i2c_set_clientdata(client, data);
-
-	ret = us5587_read_reg(us5587_raddr, 0x04, &reg);
-	if (ret < 0) {
-		printk("[BAT][CHG] %s: i2c slave_addr 0x38 for us5587 not ACK\n", __FUNCTION__);
-		return -ENODEV;
-	}
 
 	rc = sysfs_create_group(&client->dev.kobj, &dump_reg_attr_group);
 	if (rc)

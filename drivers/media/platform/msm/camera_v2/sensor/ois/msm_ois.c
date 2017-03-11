@@ -305,6 +305,7 @@ static int32_t msm_ois_write_settings(struct msm_ois_ctrl_t *o_ctrl,
 							}
 							reg_setting->reg_data_size = 1;
 						}
+                                            usleep_range(1,2);  //ASUS_BSP Deka ''fix startpreiew and OIS init compete i2c resource issue"
 						if(settings[i].reg_data == 0x0001 || settings[i].reg_data == 0x0002) {
 							rc = o_ctrl->i2c_client.i2c_func_tbl->
 								i2c_write_seq(&o_ctrl->i2c_client,

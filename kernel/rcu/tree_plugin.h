@@ -1633,10 +1633,11 @@ static bool rcu_preempt_cpu_has_nonlazy_callbacks(int cpu)
 }
 
 #endif /* else #ifdef CONFIG_TREE_PREEMPT_RCU */
-
+#endif
 /*
  * Does any flavor of RCU have non-lazy callbacks on the specified CPU?
  */
+#ifndef CONFIG_RCU_NOCB_CPU_ALL
 static bool rcu_cpu_has_nonlazy_callbacks(int cpu)
 {
 	return __rcu_cpu_has_nonlazy_callbacks(&per_cpu(rcu_sched_data, cpu)) ||

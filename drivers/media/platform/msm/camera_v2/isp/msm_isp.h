@@ -727,6 +727,7 @@ struct vfe_device {
 	/* irq info */
 	uint32_t irq0_mask;
 	uint32_t irq1_mask;
+	uint32_t ignore_irq;//ASUS_BSP ZZ++ Fix vfe error
 };
 
 struct vfe_parent_device {

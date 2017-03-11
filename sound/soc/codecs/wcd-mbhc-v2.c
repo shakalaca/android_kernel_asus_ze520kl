@@ -50,7 +50,8 @@
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 #define FAKE_REM_RETRY_ATTEMPTS 3
-#define MAX_IMPED 60000
+//#define MAX_IMPED 60000
+#define MAX_IMPED 20000
 
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
@@ -1369,6 +1370,13 @@ correct_plug_type:
 	}
 
 report:
+
+	if (plug_type == MBHC_PLUG_TYPE_GND_MIC_SWAP && mbhc->btn_press_intr) {
+		pr_debug("%s: slow insertion of headphone with swap\n", __func__);
+		wcd_cancel_btn_work(mbhc);
+		plug_type = MBHC_PLUG_TYPE_HEADPHONE;
+	}
+
 	if (wcd_swch_level_remove(mbhc)) {
 		pr_debug("%s: Switch level is low\n", __func__);
 		goto exit;

@@ -2181,7 +2181,9 @@ static int get_monotonic_soc_raw(struct fg_chip *chip)
 		pr_info_ratelimited("raw: 0x%02x\n", cap[0]);
 	return cap[0];
 }
-
+#define MAX_ASUS_CAPACITY	255
+static int g_asusCapacityShift = -1;
+struct delayed_work backup_asus_capacity_work;
 #define EMPTY_CAPACITY		0
 #define DEFAULT_CAPACITY	50
 #define MISSING_CAPACITY	100
@@ -2217,7 +2219,6 @@ int get_raw_capacity(void)
 
 	msoc = get_monotonic_soc_raw(the_chip);
 	if (msoc == 0) {
-		g_charge_now = 0;
 		if (fg_reset_on_lockup && the_chip->use_vbat_low_empty_soc) {
 			rc = fg_get_vbatt_status(the_chip, &vbatt_low_sts);
 			if (rc) {
@@ -2236,12 +2237,10 @@ int get_raw_capacity(void)
 			return EMPTY_CAPACITY;
 		}
 	} else if (msoc == FULL_SOC_RAW) {
-		g_charge_now = g_charge_full;
 		return FULL_CAPACITY;
 	}
 	result = DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
 			FULL_SOC_RAW - 2) + 1;
-	g_charge_now = g_charge_full * result / 100;
 	return result;
 }
 static int get_prop_capacity(struct fg_chip *chip)
@@ -2275,6 +2274,334 @@ static int get_prop_capacity(struct fg_chip *chip)
 
 	msoc = get_monotonic_soc_raw(chip);
 	if (msoc == 0) {
+		if (fg_reset_on_lockup && chip->use_vbat_low_empty_soc) {
+			rc = fg_get_vbatt_status(chip, &vbatt_low_sts);
+			if (rc) {
+				pr_err("Error in reading vbatt_status, rc=%d\n",
+					rc);
+				return EMPTY_CAPACITY;
+			}
+
+			if (!vbatt_low_sts)
+				return DIV_ROUND_CLOSEST((chip->last_soc - 1) *
+						(FULL_CAPACITY - 2),
+						FULL_SOC_RAW - 2) + 1;
+			else
+				return EMPTY_CAPACITY;
+		} else {
+			return EMPTY_CAPACITY;
+		}
+	} else if (msoc == FULL_SOC_RAW) {
+		return FULL_CAPACITY;
+	}
+	result = DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
+			FULL_SOC_RAW - 2) + 1;
+	return result;
+}
+bool is_asus_charging(void)
+{
+	char *charge_type;
+	charge_type = fg_to_get_usb_type();
+	if (strcmp(charge_type, "Absent") == 0) {
+		return false;
+	} else{
+		return true;
+	}
+}
+#define BATTERY_BACKUP_FILE  		"/asdf/gaugeMappingBackup"
+static int init_asus_capacity(void)
+{
+	struct file *fp = NULL;
+	mm_segment_t old_fs;
+	loff_t pos_lsts = 0;
+	char buf[8] = "";
+	int l_result = -1;
+	int readlen = 0;
+
+	fp = filp_open(BATTERY_BACKUP_FILE, O_RDONLY, S_IRWXU | S_IRWXG | S_IRWXO);
+	if (IS_ERR_OR_NULL(fp)) {
+		BAT_DBG_E("%s: open (%s) fail\n", __func__, BATTERY_BACKUP_FILE);
+		return -ENOENT;	/*No such file or directory*/
+	}
+
+	/*For purpose that can use read/write system call*/
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	if (fp->f_op != NULL && fp->f_op->read != NULL) {
+		pos_lsts = 0;
+		readlen = fp->f_op->read(fp, buf, 6, &pos_lsts);
+		buf[readlen] = '\0';		
+	} else {
+		BAT_DBG_E("%s: f_op=NULL or op->read=NULL\n", __func__);
+		return -ENXIO;	/*No such device or address*/
+	}
+	set_fs(old_fs);
+	filp_close(fp, NULL);
+
+	sscanf(buf, "%d", &l_result);
+	if(l_result < 0) {
+		BAT_DBG_E("%s: FAIL. (%d)\n", __func__, l_result);
+		return 0;	/*Invalid argument*/
+	} else {
+		BAT_DBG("%s: %d\n", __func__, l_result);
+	}
+	
+	return l_result;
+}
+void backup_asus_capacity(int input)
+{
+	struct file *fp = NULL;
+	mm_segment_t old_fs;
+	loff_t pos_lsts = 0;
+	char buf[8] = "";
+
+	sprintf(buf, "%d", input);
+	
+	fp = filp_open(BATTERY_BACKUP_FILE, O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+	if (IS_ERR_OR_NULL(fp)) {
+		BAT_DBG_E("%s: open (%s) fail\n", __func__, BATTERY_BACKUP_FILE);
+		return;
+	}
+
+	/*For purpose that can use read/write system call*/
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	if (fp->f_op != NULL && fp->f_op->write != NULL) {
+		pos_lsts = 0;
+		fp->f_op->write(fp, buf, strlen(buf), &fp->f_pos);				
+	} else {
+		BAT_DBG_E("%s: f_op=NULL or op->write=NULL\n", __func__);
+		return;
+	}
+	set_fs(old_fs);
+	filp_close(fp, NULL);
+
+	BAT_DBG("%s : %s\n", __func__, buf);
+}
+#define ASUS_MAPPING_CHARGING_TARGET_CAPACITY	251
+#define ASUS_MAPPING_CHARGING_TARGET_SHIFT	3
+static int judge_charging_parameter(int raw_soc, int last_shift)
+{
+	int l_result = MAX_ASUS_CAPACITY;
+	int l_dist = abs(last_shift - ASUS_MAPPING_CHARGING_TARGET_SHIFT);
+	/*BSP david: if last_shift != TARGET_SHIFT, need to mapping it to TARGET_SHIFT when soc == TARGET_CAPACITY*/
+	if (l_dist != 0) {
+		if ((ASUS_MAPPING_CHARGING_TARGET_CAPACITY - raw_soc) < (l_dist + 1) * 2) {
+			l_result = raw_soc + 1;
+		} else{
+			l_result = raw_soc + (ASUS_MAPPING_CHARGING_TARGET_CAPACITY - raw_soc) / (l_dist + 1);
+		}
+	} else{
+		l_result = MAX_ASUS_CAPACITY;
+	}
+	return l_result;
+}
+static int judge_discharging_parameter(int raw_soc, int last_shift)
+{
+	int l_result = 0;
+	/*BSP david: error handle, if last_shift == -1, set to 0*/
+	if (last_shift != -1) {
+		l_result = raw_soc - raw_soc / (last_shift + 1);
+	} else{
+		l_result = 0;
+	}
+	return l_result;
+}
+static int calculate_charging_capacity(int raw_soc, int last_rawSoc, int last_shift, int soc_check)
+{
+	int l_result = last_shift;
+	
+	/*BSP david: if previous capacity reach full or current raw capacity meet full condition, report full*/
+	if (last_rawSoc + last_shift >= MAX_ASUS_CAPACITY || raw_soc > ASUS_MAPPING_CHARGING_TARGET_CAPACITY) {
+		l_result = MAX_ASUS_CAPACITY - raw_soc;
+	} else{
+		/*BSP david: if raw soc reach the checking soc, make shift close to target shift*/
+		if (raw_soc >= soc_check) {
+			if (last_shift != ASUS_MAPPING_CHARGING_TARGET_SHIFT) {
+				if (last_shift > ASUS_MAPPING_CHARGING_TARGET_SHIFT) {
+			 		l_result = last_shift - 1;
+			 	} else if (last_shift < ASUS_MAPPING_CHARGING_TARGET_SHIFT) {
+					l_result = last_shift + 1;
+				}
+				/*BSP david: make sure capacity not full, since the full condition not meet*/
+				if (raw_soc + l_result >= MAX_ASUS_CAPACITY) {
+					l_result = MAX_ASUS_CAPACITY - raw_soc - 1;
+				}
+			} else{
+				l_result = last_shift;
+			}
+		} else{
+			l_result = last_shift;
+		}
+	}
+	if (l_result != last_shift) {
+		BAT_DBG("%s: raw_soc = %d, last_rawSoc = %d, last_shift = %d, soc_check = %d, result = %d\n", __func__, raw_soc, last_rawSoc, last_shift, soc_check, l_result);
+	}
+	return l_result;
+}
+
+#define ASUS_MAPPING_DISCHARGING_KEEP_FULL_UNTIL	249
+static int calculate_discharging_capacity(int raw_soc, int last_rawSoc, int last_shift, int soc_check)
+{
+	int l_result = last_shift;
+	/*BSP david: if previous soc is full, keep full until reach not full condition*/
+	if (last_rawSoc + last_shift >= MAX_ASUS_CAPACITY) {
+		/*BSP david: keep MAX if soc >= KEEP_FULL_UNTIL, otherwise set shift to MAX - KEEP_FULL_UNTIL*/
+		if (raw_soc >= ASUS_MAPPING_DISCHARGING_KEEP_FULL_UNTIL) {
+			l_result = MAX_ASUS_CAPACITY - raw_soc;
+		} else{
+			l_result = MAX_ASUS_CAPACITY - ASUS_MAPPING_DISCHARGING_KEEP_FULL_UNTIL;
+		}
+	} else{
+		/*BSP david: make shift close to 0% if soc < soc_check, since the final target is mapping raw soc 0% to 0%(+0%)*/
+		if (raw_soc <= soc_check) {
+			if (last_shift > 0) {
+				l_result = last_shift - 1;
+			} else{
+				l_result = 0;
+			}
+		} else{
+			l_result = last_shift;
+		}
+	}
+	if (l_result != last_shift) {
+		BAT_DBG("%s: raw_soc = %d, last_rawSoc = %d, last_shift = %d, soc_check = %d, result = %d\n", __func__, raw_soc, last_rawSoc, last_shift, soc_check, l_result);
+	}
+	return l_result;
+}
+struct delayed_work init_asus_capacity_work;
+
+enum asus_capacity_status {
+	ASUS_CAPACITY_UNKNOWN,
+	ASUS_CAPACITY_CHARGING,
+	ASUS_CAPACITY_DISCHARGING,
+};
+void backup_asus_capacity_worker(struct work_struct *work)
+{
+	backup_asus_capacity(g_asusCapacityShift);
+}
+void init_asus_capacity_worker(struct work_struct *work)
+{
+	g_asusCapacityShift = init_asus_capacity();
+	BAT_DBG("%s: %d\n", __func__, g_asusCapacityShift);
+	if (g_asusCapacityShift < 0) {
+		schedule_delayed_work(&init_asus_capacity_work, HZ * 5);
+	}
+}
+/*BSP david: main mapping function*/
+static int calculate_asus_capacity(int raw_soc, int last_rawSoc, int last_shift)
+{
+	static enum asus_capacity_status previous_capacityStatus = ASUS_CAPACITY_UNKNOWN;
+	static bool l_previousChargingStatus;
+	static int l_dischargingBase = -1, l_dischargingCheck = -1;
+	static int l_chargingBase = -1, l_chargingCheck = -1;
+	static int l_lastSocChangeTime_s = -1;
+	static int l_lastSocChangeInterval_s = -1;
+	int l_newShift = last_shift;
+	struct timespec mtNow;
+	mtNow = current_kernel_time();
+	/*BSP david: judge charging parameter when soc below charging base, 
+				judge discharging parameter when soc above discharging base*/
+	if (l_chargingBase == -1 || raw_soc < l_chargingBase) {
+		l_chargingBase = raw_soc;
+		l_chargingCheck = judge_charging_parameter(raw_soc, last_shift);
+	}
+	if (l_dischargingBase == -1 || raw_soc > l_dischargingBase) {
+		l_dischargingBase = raw_soc;
+		l_dischargingCheck = judge_discharging_parameter(raw_soc, last_shift);
+	}
+	/*BSP david: don't do anything if soc isn't changed*/
+	if (raw_soc == last_rawSoc) {
+		return last_shift;
+	} else{
+		l_previousChargingStatus = is_asus_charging();
+		/*BSP david: record last soc change time & interval for soc smoothing*/
+		if (l_lastSocChangeTime_s != -1 && mtNow.tv_sec > l_lastSocChangeTime_s) {
+			l_lastSocChangeInterval_s = mtNow.tv_sec - l_lastSocChangeTime_s;
+		}
+		l_lastSocChangeTime_s = mtNow.tv_sec;
+		/*BSP david: charging case*/
+		if (raw_soc > last_rawSoc) {
+			previous_capacityStatus = ASUS_CAPACITY_CHARGING;
+			l_newShift = calculate_charging_capacity(raw_soc, last_rawSoc, last_shift, l_chargingCheck);
+		/*BSP david: discharging case*/
+		} else{
+			previous_capacityStatus = ASUS_CAPACITY_DISCHARGING;
+			l_newShift = calculate_discharging_capacity(raw_soc, last_rawSoc, last_shift, l_dischargingCheck);
+		}
+		if (l_newShift != last_shift) {
+			l_chargingBase = raw_soc;
+			l_chargingCheck = judge_charging_parameter(raw_soc, l_newShift);
+			l_dischargingBase = raw_soc;
+			l_dischargingCheck = judge_discharging_parameter(raw_soc, l_newShift);
+		}
+		return l_newShift;
+	}
+}
+
+static int get_asus_monotonic_soc_raw(struct fg_chip *chip)
+{
+	static int l_lastRawSoc = -1;
+	int raw_soc;
+	int l_soc;
+	raw_soc = get_monotonic_soc_raw(chip);
+	/*BSP david: profile not loaded, return raw soc*/
+	if (g_asusCapacityShift < 0) {
+		return raw_soc;
+	} else{
+		/*BSP david: if first do asus mapping, initialize it*/
+		if (l_lastRawSoc < 0) {
+			l_lastRawSoc = raw_soc;
+			if (raw_soc + g_asusCapacityShift > MAX_ASUS_CAPACITY) {
+				g_asusCapacityShift = MAX_ASUS_CAPACITY - raw_soc;
+			}
+			BAT_DBG("%s: init with raw_soc = %d, shift = %d\n", __func__, raw_soc, g_asusCapacityShift);
+			return raw_soc + g_asusCapacityShift;
+		/*BSP david: main mapping*/
+		} else{
+			l_soc = calculate_asus_capacity(raw_soc, l_lastRawSoc, g_asusCapacityShift);
+			if (g_asusCapacityShift != l_soc) {
+				g_asusCapacityShift = l_soc;
+				schedule_delayed_work(&backup_asus_capacity_work, 0);
+			}
+			l_lastRawSoc = raw_soc;
+			return raw_soc + g_asusCapacityShift;
+		}
+	}
+}
+static int get_asus_capacity(struct fg_chip *chip)
+{
+	int msoc, rc, result = 0;
+	bool vbatt_low_sts;
+
+	if (chip->use_last_soc && chip->last_soc) {
+		if (chip->last_soc == FULL_SOC_RAW)
+			return FULL_CAPACITY;
+		return DIV_ROUND_CLOSEST((chip->last_soc - 1) *
+				(FULL_CAPACITY - 2),
+				FULL_SOC_RAW - 2) + 1;
+	}
+
+	if (chip->battery_missing)
+		return MISSING_CAPACITY;
+
+	if (!chip->profile_loaded && !chip->use_otp_profile)
+		return DEFAULT_CAPACITY;
+
+	if (chip->charge_full)
+		return FULL_CAPACITY;
+
+	if (chip->soc_empty) {
+		if (fg_debug_mask & FG_POWER_SUPPLY)
+			pr_info_ratelimited("capacity: %d, EMPTY\n",
+					EMPTY_CAPACITY);
+		return EMPTY_CAPACITY;
+	}
+
+	msoc = get_asus_monotonic_soc_raw(chip);
+	if (msoc == 0) {
 		g_charge_now = 0;
 		if (fg_reset_on_lockup && chip->use_vbat_low_empty_soc) {
 			rc = fg_get_vbatt_status(chip, &vbatt_low_sts);
@@ -2303,6 +2630,7 @@ static int get_prop_capacity(struct fg_chip *chip)
 	return result;
 }
 
+static int g_lastReportSoc;
 #define HIGH_BIAS	3
 #define MED_BIAS	BIT(1)
 #define LOW_BIAS	BIT(0)
@@ -2522,7 +2850,6 @@ static int64_t twos_compliment_extend(int64_t val, int nbytes)
 
 	return val;
 }
-static int g_lastReportSoc;
 #define LSB_24B_NUMRTR		596046
 #define LSB_24B_DENMTR		1000000
 #define LSB_16B_NUMRTR		152587
@@ -2649,7 +2976,7 @@ out:
 
 	/*BSP david: if soc changed, call power_supply_changed*/
 	if (chip->power_supply_registered) {
-		l_currSoc = get_prop_capacity(chip);
+		l_currSoc = get_asus_capacity(chip);
 		if (l_currSoc != g_lastReportSoc) {
 			g_lastReportSoc = l_currSoc;
 			power_supply_changed(&chip->bms_psy);
@@ -3365,7 +3692,7 @@ static int fg_power_get_property(struct power_supply *psy,
 			val->strval = chip->batt_type;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
-		val->intval = get_prop_capacity(chip);
+		val->intval = get_asus_capacity(chip);
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_SOC);
@@ -4161,6 +4488,7 @@ static void status_change_work(struct work_struct *work)
 				status_change_work);
 	unsigned long current_time = 0;
 	int cc_soc, rc, capacity = get_prop_capacity(chip);
+	int asus_capacity = get_asus_capacity(chip);
 	bool batt_missing = is_battery_missing(chip);
 
 	if (batt_missing) {
@@ -4174,7 +4502,7 @@ static void status_change_work(struct work_struct *work)
 	}
 
 	if (chip->status == POWER_SUPPLY_STATUS_FULL) {
-		if (capacity >= 99 && chip->hold_soc_while_full
+		if (asus_capacity >= 99 && chip->hold_soc_while_full
 				&& chip->health == POWER_SUPPLY_HEALTH_GOOD) {
 			BAT_DBG("%s: holding soc at 100\n", __func__);
 			chip->charge_full = true;
@@ -4770,7 +5098,7 @@ static irqreturn_t fg_vbatt_low_handler(int irq, void *_chip)
 		}
 	}
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 out:
@@ -4805,7 +5133,7 @@ static irqreturn_t fg_batt_missing_irq_handler(int irq, void *_chip)
 				batt_missing ? "missing" : "present");
 
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 	return IRQ_HANDLED;
@@ -4893,7 +5221,7 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 	schedule_work(&chip->battery_age_work);
 
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 
@@ -4970,7 +5298,7 @@ static irqreturn_t fg_first_soc_irq_handler(int irq, void *_chip)
 		schedule_work(&chip->dump_sram);
 
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 
@@ -6062,7 +6390,7 @@ wait:
 	}
 
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 
@@ -6146,7 +6474,7 @@ done:
 	estimate_battery_age(chip, &chip->actual_cap_uah);
 	schedule_work(&chip->status_change_work);
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 	fg_relax(&chip->profile_wakeup_source);
@@ -6164,7 +6492,7 @@ no_profile:
 	}
 
 	if (chip->power_supply_registered) {
-		g_lastReportSoc = get_prop_capacity(chip);
+		g_lastReportSoc = get_asus_capacity(chip);
 		power_supply_changed(&chip->bms_psy);
 	}
 	fg_relax(&chip->profile_wakeup_source);
@@ -6205,7 +6533,7 @@ static void check_empty_work(struct work_struct *work)
 			chip->soc_empty = false;
 
 		if (chip->power_supply_registered) {
-			g_lastReportSoc = get_prop_capacity(chip);
+			g_lastReportSoc = get_asus_capacity(chip);
 			power_supply_changed(&chip->bms_psy);
 		}
 
@@ -6219,7 +6547,7 @@ static void check_empty_work(struct work_struct *work)
 			pr_info("EMPTY SOC high\n");
 		chip->soc_empty = true;
 		if (chip->power_supply_registered) {
-			g_lastReportSoc = get_prop_capacity(chip);
+			g_lastReportSoc = get_asus_capacity(chip);
 			power_supply_changed(&chip->bms_psy);
 		}
 	}
@@ -8376,7 +8704,7 @@ static int bat_testinfo_proc_read(struct seq_file *buf, void *v)
 	tempr = get_sram_prop_now(the_chip, FG_DATA_BATT_TEMP);
 	bat_voltage = get_sram_prop_now(the_chip, FG_DATA_VOLTAGE) / 1000;
 	bat_current = get_sram_prop_now(the_chip, FG_DATA_CURRENT) / 1000;
-	SOC = get_prop_capacity(the_chip);
+	SOC = get_asus_capacity(the_chip);
 	seq_printf(buf,
 		"SOC: %d\n"
 		"VOLT(mv): %d\n"
@@ -8448,7 +8776,7 @@ static struct timespec g_last_print_time;
 void qpnp_smbcharger_polling_data_worker(int time);
 extern int CHG_TYPE_file(void);
 int print_battery_status(void) {
-	int bat_vol, bat_cur, bat_cap, bat_temp, charge_current;
+	int bat_vol, bat_cur, bat_cap, raw_soc, bat_temp, charge_current;
 	char *charge_type;
 	char battInfo[256], additionBattInfo[256];
 	int charge_status, charge_mode, mSoc = 0, bSoc = 0, cSoc = 0, ocv = 0;
@@ -8460,7 +8788,8 @@ int print_battery_status(void) {
 
 	bat_vol = get_sram_prop_now(the_chip, FG_DATA_VOLTAGE);
 	bat_cur = get_sram_prop_now(the_chip, FG_DATA_CURRENT);
-	bat_cap = get_prop_capacity(the_chip);
+	raw_soc = get_prop_capacity(the_chip);
+	bat_cap = get_asus_capacity(the_chip);
 	bat_temp = get_sram_prop_now(the_chip, FG_DATA_BATT_TEMP);
 	charge_status = get_bat_charging_status(the_chip);
 	charge_mode = get_bat_charging_mode(the_chip);
@@ -8477,7 +8806,7 @@ int print_battery_status(void) {
 		bat_cap,
 		bat_vol/1000,
 		bat_cur/1000);
-	snprintf(battInfo, sizeof(battInfo), "%sTemp:%d.%dC, Cable:%s, BATID:%lld, CHG_Status:%d(%s), CHG_Mode:%s, CHG_Cur:%d(%s)\n",
+	snprintf(battInfo, sizeof(battInfo), "%sTemp:%d.%dC, Cable:%s, BATID:%lld, CHG_Status:%d(%s), CHG_Mode:%s, CHG_Cur:%d(%s), RAW:%d\n",
 		battInfo,
 		bat_temp/10,
 		bat_temp%10,
@@ -8487,7 +8816,8 @@ int print_battery_status(void) {
 		charging_stats[charge_status],
 		charging_mode[charge_mode],
 		charge_current,
-		charging_current[charge_current]);
+		charging_current[charge_current],
+		raw_soc);
 	snprintf(additionBattInfo, sizeof(additionBattInfo), "csoc=%d, bsoc=%d, msoc=%d, ocv=%d, SocSts=%x, BatSts=%x\n",
 		cSoc,
 		bSoc,
@@ -8672,6 +9002,9 @@ static int fg_probe(struct spmi_device *spmi)
 	INIT_WORK(&chip->slope_limiter_work, slope_limiter_work);
 	INIT_WORK(&chip->dischg_gain_work, discharge_gain_work);
 	INIT_WORK(&chip->cc_soc_store_work, cc_soc_store_work);
+	INIT_DELAYED_WORK(&init_asus_capacity_work, init_asus_capacity_worker);
+	INIT_DELAYED_WORK(&backup_asus_capacity_work, backup_asus_capacity_worker);
+	schedule_delayed_work(&init_asus_capacity_work, 0);
 	alarm_init(&chip->fg_cap_learning_alarm, ALARM_BOOTTIME,
 			fg_cap_learning_alarm_cb);
 	init_completion(&chip->sram_access_granted);
@@ -8905,16 +9238,6 @@ int g_expect_suspend_soc = 100;
 int g_last_suspend_csoc;
 bool g_enable_suspend_soc_fix;
 bool g_bms_modify_soc_first = true;
-bool bms_modify_soc_is_charging(void)
-{
-	char *charge_type;
-	charge_type = fg_to_get_usb_type();
-	if (strcmp(charge_type, "Absent") == 0) {
-		return false;
-	} else{
-		return true;
-	}
-}
 void bms_modify_soc_early_suspend(void)
 {
 	struct timespec mtNow;
@@ -8924,7 +9247,7 @@ void bms_modify_soc_early_suspend(void)
 		bat_cap = get_prop_capacity(the_chip);
 		cSoc = get_sram_prop_now(the_chip, FG_DATA_CC_CHARGE);
 		/*BSP david: only modify soc when discharging*/
-		if (!bms_modify_soc_is_charging()) {
+		if (!is_asus_charging()) {
 			g_enable_suspend_soc_fix = true;
 			/*BSP david: if first modify soc, or resume more than 3 min, or soc different with late resume,
 						restart modify soc*/

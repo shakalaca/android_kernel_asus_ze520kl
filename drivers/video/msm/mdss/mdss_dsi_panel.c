@@ -1217,7 +1217,7 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	if (ctrl->ds_registered)
 		mdss_dba_utils_video_on(pinfo->dba_data, pinfo);
 
-	set_tcon_cmd(cabc_mode, ARRAY_SIZE(cabc_mode));
+    /*set_tcon_cmd(cabc_mode, ARRAY_SIZE(cabc_mode));*/
 	ftxxxx_ts_resume();/*nancy+++*/
 	/*BSP david: for gauge driver*/
 #ifdef CONFIG_QPNP_FG_SUSPEND_PREDICT
@@ -1355,6 +1355,7 @@ static void display_cmd_callback(void)
 		mdss_first_boot--;
 	}
 	g_timer = false;
+    set_tcon_cmd(cabc_mode, ARRAY_SIZE(cabc_mode));
         mdss_dsi_panel_bl_ctrl(g_mdss_pdata, g_previous_bl);
         msleep(32);
         set_tcon_cmd(dimming_cmd, ARRAY_SIZE(dimming_cmd));

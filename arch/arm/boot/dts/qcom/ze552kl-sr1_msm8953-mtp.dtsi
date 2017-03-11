@@ -59,12 +59,6 @@
 };
 
 &i2c_2 {
-	ads1013@48 {
-		compatible = "qcom,ads1013";
-		reg = <0x48>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-	};
 	us5587@38 {
 		compatible = "qcom,us5587";
 		reg = <0x38>;

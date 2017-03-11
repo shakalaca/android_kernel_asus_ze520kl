@@ -315,7 +315,7 @@ void msm_isp_process_stats_irq(struct vfe_device *vfe_dev,
 		get_comp_mask(irq_status0, irq_status1);
 	stats_irq_mask = vfe_dev->hw_info->vfe_ops.stats_ops.
 		get_wm_mask(irq_status0, irq_status1);
-	if (!(stats_comp_mask || stats_irq_mask))
+	if (!(stats_comp_mask || stats_irq_mask) || vfe_dev->ignore_irq)//ASUS_BSP ZZ++ Fix vfe error
 		return;
 
 	ISP_DBG("%s: vfe %d status: 0x%x\n", __func__, vfe_dev->pdev->id,

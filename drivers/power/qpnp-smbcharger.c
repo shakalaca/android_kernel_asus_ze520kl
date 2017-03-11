@@ -102,6 +102,8 @@ static struct smbchg_chip *smbchg_dev;		//ASUS BSP Austin_T : global chip
 bool factory_build_flag = 0;				//ASUS BSP Austin_T : FactoryBuild flag
 bool BR_countrycode_flag = 0;
 bool boot_completed_flag = 0;
+bool special_connector_flag = 0;
+bool demo_app_property_flag = 0;
 bool usb_alert_flag = 0;
 bool en_charging_limit = 0;
 int Thermal_Level = 0; 						//Thermal Level control for usb_in current
@@ -1060,7 +1062,7 @@ static int get_prop_batt_status(struct smbchg_chip *chip)
 
 	//ASUS BSP Austin_T : Change FULL condition to make Indicator reasonable
 	if (battery_dc_property == 1) {
-		if ((reg & BAT_TCC_REACHED_BIT) || (get_prop_batt_capacity(chip) == 100)) {
+		if (get_prop_batt_capacity(chip) == 100) {
 			printk("[BAT][CHG] battery status = FULL_battery_dc\n");
 			battery_dc_property = 0;
 			return POWER_SUPPLY_STATUS_FULL;
@@ -4558,6 +4560,52 @@ static ssize_t boot_completed_show(struct device *dev, struct device_attribute *
 	return sprintf(buf, "%d\n", boot_completed_flag);
 }
 
+static ssize_t special_connector_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	int tmp = 0;
+
+	tmp = buf[0] - 48;
+
+	if (tmp == 0) {
+		special_connector_flag = false;
+		printk("[BAT][CHG] special_connector_flag = 0\n");
+	} else if (tmp == 1) {
+		special_connector_flag = true;
+		printk("[BAT][CHG] special_connector_flag = 1\n");
+	}
+
+	return len;
+}
+
+static ssize_t special_connector_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", special_connector_flag);
+}
+
+static ssize_t demo_app_property_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	int tmp = 0;
+
+	tmp = buf[0] - 48;
+
+	if (tmp == 0) {
+		demo_app_property_flag = false;
+		printk("[BAT][CHG] demo_app_property_flag = 0\n");
+	} else if (tmp == 1) {
+		demo_app_property_flag = true;
+		printk("[BAT][CHG] demo_app_property_flag = 1\n");
+    }
+
+	return len;
+}
+
+static ssize_t demo_app_property_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+       return sprintf(buf, "%d\n", demo_app_property_flag);
+}
+
 static DEVICE_ATTR(factorybuild_flag, 0664, factorybuild_flag_show, factorybuild_flag_store);
 static DEVICE_ATTR(chg_dump, 0664, chg_dump_show, NULL);
 static DEVICE_ATTR(batt_info, 0664, batt_info_show, NULL);
@@ -4568,6 +4616,8 @@ static DEVICE_ATTR(stop_thermal, 0664, stop_thermal_show, stop_thermal_store);
 static DEVICE_ATTR(ChargerMode_CDP, 0664, ChargerMode_CDP_show, NULL);
 static DEVICE_ATTR(BR_countrycode, 0664, BR_countrycode_flag_show, BR_countrycode_flag_store);
 static DEVICE_ATTR(boot_completed, 0664, boot_completed_show, boot_completed_store);
+static DEVICE_ATTR(special_connector, 0664, special_connector_show, special_connector_store);
+static DEVICE_ATTR(demo_app_property, 0664, demo_app_property_show, demo_app_property_store);
 
 static struct attribute *dump_reg_attrs[] = {
 	&dev_attr_factorybuild_flag.attr,
@@ -4580,6 +4630,8 @@ static struct attribute *dump_reg_attrs[] = {
 	&dev_attr_ChargerMode_CDP.attr,
 	&dev_attr_BR_countrycode.attr,
 	&dev_attr_boot_completed.attr,
+	&dev_attr_special_connector.attr,
+	&dev_attr_demo_app_property.attr,
 	NULL
 };
 
@@ -5574,6 +5626,59 @@ unlock:
 #define ICL_MODE_MASK		SMB_MASK(5, 4)
 #define ICL_MODE 			0x9
 #define ICL_MODE_500mA		0x20
+
+#define ADF_PATH "/ADF/ADF"
+static mm_segment_t oldfs;
+static void initKernelEnv(void)
+{
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+}
+
+static void deinitKernelEnv(void)
+{
+    set_fs(oldfs);
+}
+
+static bool ADF_check_status(void)
+{
+	uint8_t *buf = NULL;
+	int readlen = 0;
+	off_t fsize;
+    struct inode *inode;
+	struct file *fd;
+
+    initKernelEnv();
+
+	fd = filp_open(ADF_PATH, O_RDONLY, 0);
+	if (IS_ERR_OR_NULL(fd)) {
+        printk("[BAT][CHG] OPEN (%s) failed\n", ADF_PATH);
+		return false;
+    }
+
+	inode = fd->f_dentry->d_inode;
+    fsize = inode->i_size;
+    buf = kmalloc(fsize, GFP_KERNEL);
+
+	readlen = fd->f_op->read(fd, buf, fsize, &fd->f_pos);
+	if (readlen < 0) {
+		printk("[BAT][CHG] Read (%s) error\n", ADF_PATH);
+        deinitKernelEnv();
+        filp_close(fd, NULL);
+        kfree(buf);
+		return false;
+	}
+	deinitKernelEnv();
+ 	filp_close(fd,NULL);
+
+	if (readlen != 4) {
+		return false;
+	} else if (buf[3] == 0x1 || buf[3] == 0x2) {
+		return true;
+	} else
+		return false;
+}
+
 void jeita_judge_work(struct work_struct *work)
 {
 	int state;
@@ -5586,6 +5691,7 @@ void jeita_judge_work(struct work_struct *work)
 	u8 overlimit = 0;
 	u8 charging_status = 0;
 	u8 reg;
+	bool demo_app_status_flag = false;
 
 	if (!smbchg_dev) {
 		pr_err("%s: smbchg_dev is null due to driver probed isn't ready\n",
@@ -5747,6 +5853,16 @@ void jeita_judge_work(struct work_struct *work)
 	}
 //ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 70% in Factory ---
 
+//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 50% in Demo APP  +++
+	if (demo_app_property_flag) {
+		demo_app_status_flag = ADF_check_status();
+		if (demo_app_status_flag && get_prop_batt_capacity(smbchg_dev) >= 60) {
+			charging_status = EN_BAT_CHG_EN_COMMAND_FALSE;
+			printk("[BAT][CHG] Demo APP triggered & Capacity > 60, diasble charging!\n");
+		}
+	}
+//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 50% in Demo APP  ---
+	
 	printk("[BAT][CHG] JEITA_charging_status = %d\n", charging_status);
 
 	rc = jeita_status_regs_write(charging_status, FV_CFG_reg_value, FCC_reg_value);
@@ -5796,11 +5912,16 @@ void adapter_detect_judge_work(struct work_struct *work)
 
 	if (typec_current != 500 && typec_current != 1400 && typec_current != 1910) {
 		printk("[BAT][CHG] CCOUT is open, set 500mA\n");
-		smbchg_dev->usb_target_current_ma = Default_ELSE_500mA;
-		rc = smbchg_set_usb_current_max(smbchg_dev, smbchg_dev->usb_target_current_ma);
-		smbchg_dev->CHG_TYPE_flag = ELSE;
-		smbchg_jeita_start_work(smbchg_dev, 0);		//ASUS BSP Austin_T: Jeita start
-		goto pm_relax;
+		if (special_connector_flag) {
+			printk("[BAT][CHG] special_connector = 1, ignore CCOUT open\n");
+			goto special_connector;
+		} else {
+			smbchg_dev->usb_target_current_ma = Default_ELSE_500mA;
+			rc = smbchg_set_usb_current_max(smbchg_dev, smbchg_dev->usb_target_current_ma);
+			smbchg_dev->CHG_TYPE_flag = ELSE;
+			smbchg_jeita_start_work(smbchg_dev, 0);		//ASUS BSP Austin_T: Jeita start
+			goto pm_relax;
+		}
 	}
 
 	if (typec_current != 500 && usb_supply_type != POWER_SUPPLY_TYPE_USB_DCP) {
@@ -5817,6 +5938,7 @@ void adapter_detect_judge_work(struct work_struct *work)
 		goto pm_relax;
 	}
 
+special_connector:
 	switch(usb_supply_type) {
 	case POWER_SUPPLY_TYPE_USB:
 		if (g_Charger_mode) {
@@ -7470,6 +7592,7 @@ static irqreturn_t chg_term_handler(int irq, void *_chip)
 	struct smbchg_chip *chip = _chip;
 
 	pr_smb(PR_INTERRUPT, "tcc triggered\n");
+	printk("[BAT][CHG] %s start\n", __FUNCTION__);
 	/*
 	 * Charge termination is a pulse and not level triggered. That means,
 	 * TCC bit in RT_STS can get cleared by the time this interrupt is
@@ -9941,19 +10064,6 @@ void BatTriggeredSetRTC(struct work_struct *dat)
 //ASUS BSP Austin_Tseng : Add BatAlarm ---
 
 #define COUNTRY_CODE_PATH "/factory/COUNTRY"
-static mm_segment_t oldfs;
-
-static void initKernelEnv(void)
-{
-    oldfs = get_fs();
-    set_fs(KERNEL_DS);
-}
-
-static void deinitKernelEnv(void)
-{
-    set_fs(oldfs);
-}
-
 void read_BR_countrycode_work(struct work_struct *work)
 {
     char buf[32];
@@ -10049,6 +10159,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	const char *typec_psy_name;
 	int usb_alert_irq = 0;
 	int status = 0;
+	bool after_PR2 = 0;
 
 	printk("[BAT][CHG] %s start\n", __FUNCTION__);
 
@@ -10267,21 +10378,22 @@ static int smbchg_probe(struct spmi_device *spmi)
 //ASUS BSP Austin_T: Request ADCPWREN-gpios01, DM_SW_EN-gpios134, ADC_VDD_EN-gpios99 & USBID_CTRL ---
 
 //ASUS BSP Austin_T : msm8953_gpio99 & pm8953_gpio08 control after PR stage +++
-		if ((g_ASUS_hwID >= ZE552KL_PR && g_ASUS_hwID <= ZE552KL_MP) || 
-			(g_ASUS_hwID >= ZE520KL_PR && g_ASUS_hwID <= ZE520KL_MP)) {
-			printk("[BAT][CHG] PR stage probe, pull high gpio99\n");
-			rc = gpio_direction_output(global_gpio->ADC_VDD_EN, 1);
-			if (rc)
-				printk("[BAT][CHG] failed to pull-high ADC_VDD_EN-gpio99\n");
-		}	
-	
-		if ((g_ASUS_hwID >= ZE552KL_PR2 && g_ASUS_hwID <= ZE552KL_MP) || 
-			(g_ASUS_hwID >= ZE520KL_PR2 && g_ASUS_hwID <= ZE520KL_MP)) {
-			printk("[BAT][CHG] PR stage probe, set pm8953 gpio08 digital input\n");
-			rc = gpio_direction_input(global_gpio->USBID_CTRL);
-			if (rc)
-				printk("[BAT][CHG] failed to set pm8953 gpio08 digital input\n");
-		}
+	if ((g_ASUS_hwID >= ZE552KL_PR && g_ASUS_hwID <= ZE552KL_MP) || 
+		(g_ASUS_hwID >= ZE520KL_PR && g_ASUS_hwID <= ZE520KL_MP)) {
+		printk("[BAT][CHG] PR stage probe, pull high gpio99\n");
+		rc = gpio_direction_output(global_gpio->ADC_VDD_EN, 1);
+		if (rc)
+			printk("[BAT][CHG] failed to pull-high ADC_VDD_EN-gpio99\n");
+	}	
+
+	if ((g_ASUS_hwID >= ZE552KL_PR2 && g_ASUS_hwID <= ZE552KL_MP) || 
+		(g_ASUS_hwID >= ZE520KL_PR2 && g_ASUS_hwID <= ZE520KL_MP)) {
+		after_PR2 = 1;
+		printk("[BAT][CHG] PR stage probe, set pm8953 gpio08 digital input\n");
+		rc = gpio_direction_input(global_gpio->USBID_CTRL);
+		if (rc)
+			printk("[BAT][CHG] failed to set pm8953 gpio08 digital input\n");
+	}
 //ASUS BSP Austin_T : msm8953_gpio99 & pm8953_gpio08 control after PR stage ---
 
 	rc = smbchg_parse_peripherals(chip);
@@ -10429,7 +10541,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	schedule_delayed_work(&read_countrycode_work, msecs_to_jiffies(10000));		//ASUS BSP Austin_T: adapter detect start
 
 //[+++]Add the gpio for USB high temperature alert
-	if (g_usb_alert_mode && !g_Charger_mode) {
+	if (g_usb_alert_mode && !g_Charger_mode && after_PR2) {
 
 		gpio_ctrl->USB_TEMP_ALERT = of_get_named_gpio(chip->spmi->dev.of_node, "USB_TEMP_ALERT-gpios90", 0);
 		printk("[BAT][CHG] enable gpio90 for USB_Alert  %d\n", gpio_ctrl->USB_TEMP_ALERT);

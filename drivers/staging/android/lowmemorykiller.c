@@ -195,7 +195,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 				atomic_set(&shift_adj, 1);
 				trace_almk_vmpressure(pressure, other_free,
 					other_file);
-				printk("lowmem:lmk_vmpressure_notifier doing aLMK , other_file=%d, lowmem_minfree[array_size - 1]=%d, other_free=%d,\n", other_file, lowmem_minfree[array_size - 1], other_free);
+				//printk("lowmem:lmk_vmpressure_notifier doing aLMK , other_file=%d, lowmem_minfree[array_size - 1]=%d, other_free=%d,\n", other_file, lowmem_minfree[array_size - 1], other_free);
 		}
 	} else if (atomic_read(&shift_adj)) {
 		/*
@@ -440,6 +440,11 @@ static void list_reset(struct list_head *pList)
 #define MINFREE_TO_PRINT_LOG 		(300)
 #define HEAD_LINE "PID       RSS    oom_adj       cmdline\n"
 char meminfo_str[ASUS_MEMORY_DEBUG_MAXCOUNT][ASUS_MEMORY_DEBUG_MAXLEN];
+static unsigned long lowmem_scan_count;
+static unsigned long lowmem_escape1_count;
+static unsigned long lowmem_escape2_count;
+static unsigned long lowmem_escape3_count;
+static unsigned long lowmem_kill_count;
 static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 {
 	LIST_HEAD(ListHead);
@@ -474,7 +479,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	
 	if (mutex_lock_interruptible(&scan_mutex) < 0)
 		return 0;
-
+	
+	lowmem_scan_count++;
+	
 	nr_free_pages = global_page_state(NR_FREE_PAGES);
 	nr_file_pages = global_page_state(NR_FILE_PAGES);
 	nr_zcache_pages = zcache_pages();
@@ -508,25 +515,27 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		bIsAdapterLMK = true;
 	}
 	// if the kswapd comes, directly do the lowmemkiller. others, check if the justkilled/killnothing timeout to sleep or proceed to kill processes.
-	if(!current_is_kswapd())
+	// if PowerManagerSer calls, do not wait, and directly run the killer
+	
+	if((min_score_adj >= justkilled_adj) && time_before_eq(jiffies, lowmem_justkilled_timeout))
 	{
-		
-		if((min_score_adj >= justkilled_adj) && time_before_eq(jiffies, lowmem_justkilled_timeout))
-		{
-			mutex_unlock(&scan_mutex);
-			msleep(100);
-			//printk("lowmem:lowmem_justkilled_timeout\n");
-			return other_free/5;
-		}		
+		mutex_unlock(&scan_mutex);
+		//if(strcmp(current->comm, "PowerManagerSer"))
+		//	msleep(50);
+		//printk("lowmem:lowmem_justkilled_timeout\n");
+		lowmem_escape1_count++;
+		return 0;
+	}		
 
-		if((min_score_adj >= killNothing_adj) && time_before_eq(jiffies, lowmem_killNothing_timeout))
-		{
-			mutex_unlock(&scan_mutex);
-			//printk("lowmem:min_lowmem_killNothing_timeout\n");
-			msleep(100);
-			return other_free/5;
-			
-		}
+	if((min_score_adj >= killNothing_adj) && time_before_eq(jiffies, lowmem_killNothing_timeout))
+	{
+		mutex_unlock(&scan_mutex);
+		//printk("lowmem:min_lowmem_killNothing_timeout\n");
+		//if(strcmp(current->comm, "PowerManagerSer"))
+		//	msleep(50);
+		lowmem_escape2_count++;
+		return 0;
+		
 	}
 	//lowmem_print(5, "lowmem_scan %lu, %x, ofree %d %d, ma %hd\n", sc->nr_to_scan, sc->gfp_mask, other_free, other_file, min_score_adj);
 
@@ -535,6 +544,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		lowmem_print(5, "lowmem_scan %lu, %x, return 0\n",
 			     sc->nr_to_scan, sc->gfp_mask);
 		mutex_unlock(&scan_mutex);
+		lowmem_escape3_count++;
 		return 0;
 	}
 
@@ -545,7 +555,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	}
 	// if aLMK, kill one app at a time, others, check the min_score_adj, the lower the memory, the more the apps to kill
 	if(bIsAdapterLMK)
-		nTaskMax = 1;
+		nTaskMax = 2;
 	else if(min_score_adj >= 1000)
 		nTaskMax = 1;
 	else if(min_score_adj >= 529)
@@ -667,7 +677,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 					nTargetSize = get_mm_rss(pTask->mm);
 				task_unlock(pTask);
 				if(!bIsAdapterLMK)
-					{
+				{
 					if (oom_score_adj > nTargeteAdj) {
 					} else if (oom_score_adj < nTargeteAdj) {
 						break;
@@ -802,10 +812,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		// set the justkilled flag to true, and remember the min_score_adj for reference
 		lowmem_justkilled_timeout = jiffies + HZ/nTaskMax;
 		justkilled_adj = min_score_adj;
+		lowmem_kill_count++;
 	}
-
-	/* give the system time to free up the memory */
-
+	
 	list_reset(&ListHead);
 	//lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n", sc->nr_to_scan, sc->gfp_mask, rem);
 	rcu_read_unlock();
@@ -841,9 +850,10 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	if(killNothing)
 	{
 		killNothing_adj = min_score_adj;
-		lowmem_killNothing_timeout = jiffies + HZ;
+		lowmem_killNothing_timeout = jiffies + 2*HZ;
 		//printk("lowmem:killnothing min_score_adj=%d \n", killNothing_adj);
 	}
+
 	return rem;
 }
 
@@ -883,6 +893,34 @@ void dumpthread_func(struct work_struct *work)
 	return;
 }
 
+
+#define LOAD_TRACKING_PERIOD 5000
+void LoadTrackerExec(unsigned long data);
+DEFINE_TIMER(LoadTrackerTimer, LoadTrackerExec, 0, 0);
+
+void LoadTrackerExec(unsigned long data)
+{
+	static unsigned long last_track_time = 0;
+	static unsigned escaped_msec;
+
+	// Initial condition
+	if (last_track_time == 0) {
+		last_track_time = jiffies;
+	} else {
+		escaped_msec = jiffies_to_msecs(abs(jiffies - last_track_time));
+
+		printk("[LMK] Elapsed: %u ms, Scan: %lu, Kill: %lu, escape1= %lu, escape2=%lu, escape3=%lu \n", escaped_msec, lowmem_scan_count, lowmem_kill_count, lowmem_escape1_count, lowmem_escape2_count, lowmem_escape3_count);
+
+		lowmem_scan_count = 0;
+		lowmem_kill_count = 0;
+		lowmem_escape1_count = 0;
+		lowmem_escape2_count = 0;
+		lowmem_escape3_count = 0;
+		last_track_time = jiffies;
+	}
+	mod_timer(&LoadTrackerTimer, jiffies + msecs_to_jiffies(LOAD_TRACKING_PERIOD));
+}
+
 static int __init lowmem_init(void)
 {
 	register_shrinker(&lowmem_shrinker);
@@ -890,7 +928,9 @@ static int __init lowmem_init(void)
 
 	INIT_WORK(&__dumpmem_work, dumpmem_func);
 	INIT_WORK(&__dumpthread_work, dumpthread_func);
-	
+
+	// Track lmk loading
+	mod_timer(&LoadTrackerTimer, jiffies + msecs_to_jiffies(LOAD_TRACKING_PERIOD));
 	return 0;
 }
 
