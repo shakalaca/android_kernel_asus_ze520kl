@@ -661,6 +661,11 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		}
 		if (selected->signal)
 			selected_oom_score_adj = selected->signal->oom_score_adj;
+		if (selected_oom_score_adj < min_score_adj) {
+			lowmem_print(1, "Skip killing '%s' (%d), adj %hd is lower than min_score_adj %d now\n", selected->comm, selected->pid, selected_oom_score_adj, min_score_adj);
+                        task_unlock(selected);
+                        continue;
+                }
 		if (selected->mm)
 			selected_tasksize = get_mm_rss(selected->mm);
 		task_unlock(selected);

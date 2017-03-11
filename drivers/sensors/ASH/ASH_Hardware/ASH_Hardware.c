@@ -20,6 +20,12 @@
 #include <linux/i2c.h>
 #include <linux/input/ASH.h>
 
+/*====================
+ *|| I2C mutex lock ||
+ *====================*/
+extern void lock_i2c_bus6(void);
+extern void unlock_i2c_bus6(void);
+
 /**************************/
 /* Debug and Log System */
 /************************/
@@ -102,7 +108,9 @@ int i2c_read_reg_u16(struct i2c_client* client, u8 reg, uint8_t* data)
 	}
 	memset(&data, 0, sizeof(data));
 	
+	lock_i2c_bus6();
 	ret = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
+	unlock_i2c_bus6();
 	/*return 2 is expected.*/
 	if (ret != ARRAY_SIZE(msg)) {
 		err("%s: i2c_transfer ERROR(0x%0X). \n", __FUNCTION__, reg);
@@ -142,7 +150,9 @@ int i2c_write_reg_u16(struct i2c_client* client, u8 reg, uint8_t* data)
 	memcpy(buf + 1, &data[0], sizeof(data[0]));
 	memcpy(buf + 2, &data[1], sizeof(data[1]));
 
+	lock_i2c_bus6();
 	ret = i2c_transfer(client->adapter, &msg, 1);
+	unlock_i2c_bus6();
 	/*return postive is expected.*/
 	if(ret < 0){
 		err("%s: i2c_transfer ERROR. (reg=0x%x, data_l=%d, data_h=%d, err = 0x%x)\n", 

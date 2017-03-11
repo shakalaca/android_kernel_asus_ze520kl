@@ -54,6 +54,7 @@ static struct IRsensor_hw						*IRsensor_hw_client;
 static struct workqueue_struct 					*IRsensor_workqueue;
 static struct workqueue_struct 					*IRsensor_delay_workqueue;
 static struct mutex 								g_ir_lock;
+static struct mutex 								g_i2c_lock;
 static struct wake_lock 							g_ir_wake_lock;
 static struct hrtimer 							g_ir_timer;
 static struct i2c_client *g_i2c_client;
@@ -1292,6 +1293,13 @@ mutex_lock(&g_ir_lock);
 		goto ist_err;
 	}
 
+	/* Read INT_FLAG will clean the interrupt */
+	ASUS_IR_SENSOR_INT = IRsensor_hw_client->IRsensor_hw_get_interrupt();
+	if(ASUS_IR_SENSOR_INT <0){
+		err("IRsensor_hw_get_interrupt ERROR\n");
+		goto ist_err;
+	}
+
 	/* Check Proximity Interrupt */
 	irsensor_int_ps = ASUS_IR_SENSOR_INT&IRSENSOR_INT_PS_MASK;
 	if(irsensor_int_ps == IRSENSOR_INT_PS_CLOSE || irsensor_int_ps == IRSENSOR_INT_PS_AWAY) 
@@ -1333,13 +1341,6 @@ void IRsensor_irq_handler(void)
 	
 	if(IRsensor_hw_client->IRsensor_hw_get_interrupt == NULL) {
 		err("IRsensor_hw_get_interrupt NOT SUPPORT. \n");
-		goto irq_err;
-	}
-
-	/* Read INT_FLAG will clean the interrupt */
-	ASUS_IR_SENSOR_INT = IRsensor_hw_client->IRsensor_hw_get_interrupt();
-	if(ASUS_IR_SENSOR_INT <0){
-		err("IRsensor_hw_get_interrupt ERROR\n");
 		goto irq_err;
 	}
 
@@ -1564,6 +1565,20 @@ static enum hrtimer_restart proximity_timer_function(struct hrtimer *timer)
 }
 
 /*====================
+ *|| I2C mutex lock ||
+ *====================
+ */
+void lock_i2c_bus6(void) {
+	mutex_lock(&g_i2c_lock);
+}
+EXPORT_SYMBOL(lock_i2c_bus6);
+
+void unlock_i2c_bus6(void) {
+	mutex_unlock(&g_i2c_lock);
+}
+EXPORT_SYMBOL(unlock_i2c_bus6);
+
+/*====================
  *|| Initialization Part ||
  *====================
  */
@@ -1734,7 +1749,8 @@ static int __init IRsensor_init(void)
 	IRsensor_delay_workqueue = create_singlethread_workqueue(SENSOR_TYPE_NAME"_delay_wq");	
 
 	/* Initialize the Mutex */
-	mutex_init(&g_ir_lock);	
+	mutex_init(&g_ir_lock);
+	mutex_init(&g_i2c_lock);
 
 	/* Initialize the wake lock */
 	wake_lock_init(&g_ir_wake_lock, WAKE_LOCK_SUSPEND, "IRsensor_wake_lock");
@@ -1795,6 +1811,7 @@ static void __exit IRsensor_exit(void)
 	
 	wake_lock_destroy(&g_ir_wake_lock);
 	mutex_destroy(&g_ir_lock);
+	mutex_destroy(&g_i2c_lock);
 	kfree(g_ps_data);
 	kfree(g_als_data);
 

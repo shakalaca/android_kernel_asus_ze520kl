@@ -23,6 +23,7 @@
 
 /* cm3323e command code */
 #define	CM3323E_CONF			0x00
+#define	CM3323E_RESERVE	0x03
 #define CM3323E_R_DATA		0x08
 #define CM3323E_G_DATA		0x09
 #define CM3323E_B_DATA		0x0A

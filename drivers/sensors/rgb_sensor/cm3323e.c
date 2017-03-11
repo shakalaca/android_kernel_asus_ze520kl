@@ -66,6 +66,12 @@
 
 #define RGB_SENSOR_FILE  		"/factory/rgbSensor_data"
 
+/*====================
+ *|| I2C mutex lock ||
+ *====================*/
+extern void lock_i2c_bus6(void);
+extern void unlock_i2c_bus6(void);
+
 static struct mutex als_enable_mutex;
 struct msm_rgb_sensor_vreg {
 	struct camera_vreg_t *cam_vreg;
@@ -309,6 +315,12 @@ static void rgbSensor_setDelay(void)
 	g_rgb_status.delay_time_jiffies = g_rgb_status.delay_time_ms * HZ / 1000;
 	g_rgb_status.end_time_jiffies = g_rgb_status.start_time_jiffies + g_rgb_status.delay_time_jiffies;
 }
+
+void rgbSensor_workAround(void)
+{
+	_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_RESERVE, 0);
+}
+
 static int rgbSensor_doEnable(bool enabled)
 {
 	int ret = 0;
@@ -317,7 +329,10 @@ static int rgbSensor_doEnable(bool enabled)
 	l_it_time = cm_lp_info->it_time << 4;
 	if (enabled) {
 		cm_lp_info->als_enable = 1;
+		lock_i2c_bus6();
 		als_power(1);
+		rgbSensor_workAround();
+		unlock_i2c_bus6();
 		msleep(5);
 		ret = _cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_CONF, l_it_time);
 		rgbSensor_setDelay();

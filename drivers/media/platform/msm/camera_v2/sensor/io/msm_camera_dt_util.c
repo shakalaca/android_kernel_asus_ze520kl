@@ -28,6 +28,15 @@
 int gpio_ref_cnt[SENSOR_GPIO_MAX];  //ASUS_BSP Deka "fix cts multi-release fail"
 int vref_ref_cnt[CAM_VREG_MAX];  //ASUS_BSP Deka "fix cts multi-release fail"
 
+//ASUS_BSP +++ PJ_Ma "Work around RGB HW issue"
+/*====================
+ *|| RGB HW issue Work around ||
+ *====================*/
+extern void lock_i2c_bus6(void);
+extern void unlock_i2c_bus6(void);
+extern void rgbSensor_workAround(void);
+//ASUS_BSP --- PJ_Ma "Work around RGB HW issue"
+
 int msm_camera_fill_vreg_params(struct camera_vreg_t *cam_vreg,
 	int num_vreg, struct msm_sensor_power_setting *power_setting,
 	uint16_t power_setting_size)
@@ -1511,6 +1520,10 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 					SENSOR_GPIO_MAX);
 				goto power_up_failed;
 			}
+			//ASUS_BSP +++ PJ_Ma "Work around RGB HW issue"
+			if (power_setting->seq_val == CAM_VAF)
+				lock_i2c_bus6();
+			//ASUS_BSP --- PJ_Ma "Work around RGB HW issue"
 			if (power_setting->seq_val < ctrl->num_vreg)
 				msm_camera_config_single_vreg(ctrl->dev,
 					&ctrl->cam_vreg
@@ -1522,7 +1535,12 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 				pr_err("%s: %d usr_idx:%d dts_idx:%d\n",
 					__func__, __LINE__,
 					power_setting->seq_val, ctrl->num_vreg);
-
+			//ASUS_BSP +++ PJ_Ma "Work around RGB HW issue"
+			if (power_setting->seq_val == CAM_VAF) {
+				rgbSensor_workAround();
+				unlock_i2c_bus6();
+			}
+			//ASUS_BSP --- PJ_Ma "Work around RGB HW issue"
 			rc = msm_cam_sensor_handle_reg_gpio(
 				power_setting->seq_val,
 				ctrl->gpio_conf, 1);
