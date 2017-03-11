@@ -346,6 +346,8 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 	if (new_level == old_level)
 		return;
 
+	kgsl_pwrscale_update_stats(device);
+
 	/*
 	 * Set the active and previous powerlevel first in case the clocks are
 	 * off - if we don't do this then the pwrlevel change won't take effect
@@ -915,6 +917,31 @@ static ssize_t kgsl_pwrctrl_gpu_available_frequencies_show(
 	return num_chars;
 }
 
+static ssize_t kgsl_pwrctrl_gpu_clock_stats_show(
+					struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	struct kgsl_pwrctrl *pwr;
+	int index, num_chars = 0;
+
+	if (device == NULL)
+		return 0;
+	pwr = &device->pwrctrl;
+	mutex_lock(&device->mutex);
+	kgsl_pwrscale_update_stats(device);
+	mutex_unlock(&device->mutex);
+	for (index = 0; index < pwr->num_pwrlevels - 1; index++)
+		num_chars += snprintf(buf + num_chars, PAGE_SIZE - num_chars,
+			"%llu ", pwr->clock_times[index]);
+
+	if (num_chars < PAGE_SIZE)
+		buf[num_chars++] = '\n';
+
+	return num_chars;
+}
+
 static ssize_t kgsl_pwrctrl_reset_count_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -1154,6 +1181,47 @@ static ssize_t kgsl_popp_show(struct device *dev,
 		test_bit(POPP_ON, &device->pwrscale.popp_state));
 }
 
+static ssize_t kgsl_pwrctrl_pwrscale_store(struct device *dev,
+					   struct device_attribute *attr,
+					   const char *buf, size_t count)
+{
+	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	int ret;
+	unsigned int enable = 0;
+
+	if (device == NULL)
+		return 0;
+
+	ret = kgsl_sysfs_store(buf, &enable);
+	if (ret)
+		return ret;
+
+	mutex_lock(&device->mutex);
+
+	if (enable)
+		kgsl_pwrscale_enable(device);
+	else
+		kgsl_pwrscale_disable(device, false);
+
+	mutex_unlock(&device->mutex);
+
+	return count;
+}
+
+static ssize_t kgsl_pwrctrl_pwrscale_show(struct device *dev,
+					  struct device_attribute *attr,
+					  char *buf)
+{
+	struct kgsl_device *device = kgsl_device_from_dev(dev);
+	struct kgsl_pwrscale *psc;
+
+	if (device == NULL)
+		return 0;
+	psc = &device->pwrscale;
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", psc->enabled);
+}
+
 static DEVICE_ATTR(gpuclk, 0644, kgsl_pwrctrl_gpuclk_show,
 	kgsl_pwrctrl_gpuclk_store);
 static DEVICE_ATTR(max_gpuclk, 0644, kgsl_pwrctrl_max_gpuclk_show,
@@ -1166,6 +1234,9 @@ static DEVICE_ATTR(gpubusy, 0444, kgsl_pwrctrl_gpubusy_show,
 	NULL);
 static DEVICE_ATTR(gpu_available_frequencies, 0444,
 	kgsl_pwrctrl_gpu_available_frequencies_show,
+	NULL);
+static DEVICE_ATTR(gpu_clock_stats, 0444,
+	kgsl_pwrctrl_gpu_clock_stats_show,
 	NULL);
 static DEVICE_ATTR(max_pwrlevel, 0644,
 	kgsl_pwrctrl_max_pwrlevel_show,
@@ -1204,6 +1275,9 @@ static DEVICE_ATTR(popp, 0644, kgsl_popp_show, kgsl_popp_store);
 static DEVICE_ATTR(force_non_retention_on, 0644,
 	kgsl_pwrctrl_force_non_retention_on_show,
 	kgsl_pwrctrl_force_non_retention_on_store);
+static DEVICE_ATTR(pwrscale, 0644,
+	kgsl_pwrctrl_pwrscale_show,
+	kgsl_pwrctrl_pwrscale_store);
 
 static const struct device_attribute *pwrctrl_attr_list[] = {
 	&dev_attr_gpuclk,
@@ -1212,6 +1286,7 @@ static const struct device_attribute *pwrctrl_attr_list[] = {
 	&dev_attr_deep_nap_timer,
 	&dev_attr_gpubusy,
 	&dev_attr_gpu_available_frequencies,
+	&dev_attr_gpu_clock_stats,
 	&dev_attr_max_pwrlevel,
 	&dev_attr_min_pwrlevel,
 	&dev_attr_thermal_pwrlevel,
@@ -1225,6 +1300,7 @@ static const struct device_attribute *pwrctrl_attr_list[] = {
 	&dev_attr_bus_split,
 	&dev_attr_default_pwrlevel,
 	&dev_attr_popp,
+	&dev_attr_pwrscale,
 	NULL
 };
 
@@ -1341,6 +1417,9 @@ static void kgsl_pwrctrl_clk(struct kgsl_device *device, int state,
 					pwr->pwrlevels[pwr->num_pwrlevels - 1].
 					gpu_freq);
 			}
+
+			/* Turn off the IOMMU clocks */
+			kgsl_mmu_disable_clk(&device->mmu);
 		} else if (requested_state == KGSL_STATE_SLEEP) {
 			/* High latency clock maintenance. */
 			for (i = KGSL_MAX_CLKS - 1; i > 0; i--)
@@ -1381,7 +1460,11 @@ static void kgsl_pwrctrl_clk(struct kgsl_device *device, int state,
 					pwr->gpu_bimc_interface_enabled = 1;
 				}
 			}
+
+			/* Turn on the IOMMU clocks */
+			kgsl_mmu_enable_clk(&device->mmu);
 		}
+
 	}
 }
 

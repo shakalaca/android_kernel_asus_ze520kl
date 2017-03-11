@@ -40,6 +40,11 @@ extern int Laser_log_cnt;
 extern int proc_log_cnt;
 extern uint16_t Settings[NUMBER_OF_SETTINGS];
 
+extern int LaserState;
+extern int client;
+
+extern struct msm_laser_focus_ctrl_t *laura_t;
+
 static void init_debug_raw_data(void){
 		debug_raw_range = 0;
 		debug_raw_confidence = 0;
@@ -408,7 +413,6 @@ uint16_t thd = 16;
 uint16_t limit = 1500;
 uint8_t thd_near_mm = 0; 
 
-
 int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 	
 	uint16_t RawRange = 0, Range = 0, error_status =0;
@@ -540,7 +544,6 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 
 }
 
-
 int	Read_Range_Data_OldKdata(struct msm_laser_focus_ctrl_t *dev_t){
 	
 	uint16_t RawRange = 0, Range = 0, error_status =0;
@@ -606,9 +609,6 @@ int	Read_Range_Data_OldKdata(struct msm_laser_focus_ctrl_t *dev_t){
 				}
 			}
 
-
-////
-
 			if(!confirm && Range == 0){
 				errcode = RANGE_ADAPT;
 				Range =	OUT_OF_RANGE;
@@ -650,13 +650,6 @@ int	Read_Range_Data_OldKdata(struct msm_laser_focus_ctrl_t *dev_t){
 				errcode = RANGE_ADAPT;
 				confirm =11;					
 			}
-
-
-////
-
-					
-
-////
 			
 		}
 		else{
@@ -724,7 +717,6 @@ int	Read_Range_Data_OldKdata(struct msm_laser_focus_ctrl_t *dev_t){
 
 }
 
-
 int Perform_measurement(struct msm_laser_focus_ctrl_t *dev_t)
 {
 	int status, Range=0;
@@ -742,7 +734,7 @@ int Perform_measurement(struct msm_laser_focus_ctrl_t *dev_t)
 			Range = Read_Range_Data(dev_t);
 		else
 			Range = Read_Range_Data_OldKdata(dev_t);
-	
+
 		if(Range < 0){
 			ErrCode1 = RANGE_ERR_NOT_ADAPT;
 			Range1 = OUT_OF_RANGE;
@@ -752,14 +744,23 @@ int Perform_measurement(struct msm_laser_focus_ctrl_t *dev_t)
 
 		repairing_state = false;
 
-		if(timedMeasure && ioctrl_close){
-			LOG_Handler(LOG_DBG,"ioctrl close, stop measuring\n");
-			return status;
+		
+		if(timedMeasure){
+			mutex_ctrl(laura_t, MUTEX_LOCK);
+			if(client<=0){
+				LaserState = CLOSING_STATE;
+				LOG_Handler(LOG_DBG,"ioctrl close, stop measuring\n");
+				mutex_ctrl(laura_t, MUTEX_UNLOCK);
+				return status;
+			}
+			else{
+				mutex_ctrl(laura_t, MUTEX_UNLOCK);
+				msleep(40);		
+			}
 		}	
-		else if(!timedMeasure)
-			return Range;
 		else
-			msleep(40);
+			return Range;
+
 		
 	}while(timedMeasure);
 

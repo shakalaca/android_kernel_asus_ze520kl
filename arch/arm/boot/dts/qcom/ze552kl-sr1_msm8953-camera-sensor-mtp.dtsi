@@ -321,7 +321,6 @@
 		qcom,clock-rates = <24000000 0>;
 	};
 
-
 	ois0: qcom,ois1@4C {
                 cell-index = <0>;
                 reg = <0x4C>;
@@ -343,7 +342,7 @@
 		qcom,cam-vreg-op-mode = <80000>;
         };
 
-	ois1: qcom,ois@29 {
+	ois1: qcom,ois1@29 {
 		cell-index = <0>;
 		reg = <0x29>;
 		qcom,slave-id = <0x52 0x00c0 0xee>;

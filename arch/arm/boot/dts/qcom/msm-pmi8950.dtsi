@@ -348,6 +348,7 @@
 			qcom,fg-cutoff-voltage-mv = <3400>;
 			qcom,cycle-counter-en;
 			qcom,capacity-learning-on;
+			qcom,capacity-learning-feedback;
 			qcom,warm-bat-decidegc = <500>;		//Warm battery temperature in decidegC.
 			qcom,cool-bat-decidegc = <100>;		//Cool battery temperature in decidegC.
 			qcom,hot-bat-decidegc = <600>;		//Hot battery temperature in decidegC.
@@ -493,7 +494,7 @@
 			reg-names = "qpnp-lpg-channel-base";
 			qcom,channel-id = <0>;
 			qcom,supported-sizes = <6>, <9>;
-			qcom,lpg-dtest-line = <1>; //ASUS BSP Deeo : add for LED PWM
+			qcom,dtest-line = <1>; //ASUS BSP Deeo : add for LED PWM
 			qcom,dtest-output = <1>;   //ASUS BSP Deeo : add for LED PWM
 			#pwm-cells = <2>;
 		};
@@ -566,7 +567,7 @@
 				qcom,qpnp-lab-ps-enable;
 				qcom,qpnp-lab-nfet-size = <100>;
 				qcom,qpnp-lab-pfet-size = <100>;
-				qcom,qpnp-lab-max-precharge-time = <300>;
+				qcom,qpnp-lab-max-precharge-time = <500>;
 			};
 
 		};
@@ -604,6 +605,7 @@
 			qcom,ibb-pwrup-dly = <8>;
 			qcom,led-strings-list = [00 01];
 			//qcom,en-ext-pfet-sc-pro; //ASUS BSP Deeo : remove to enable mpp pwm output
+			qcom,cons-sync-write-delay-us = <1000>;
 			qcom,en-cabc;
 		};
 
@@ -693,6 +695,7 @@
 			interrupts = <0x3 0xc0 0x0>,
 					<0x3 0xc0 0x1>;
 			interrupt-names = "sc-irq", "play-irq";
+			vcc_pon-supply = <&pon_perph_reg>;
 			qcom,play-mode = "direct";
 			qcom,wave-play-rate-us = <5263>;
 			qcom,actuator-type = "erm";

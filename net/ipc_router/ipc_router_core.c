@@ -196,6 +196,7 @@ static void *ipc_router_get_log_ctx(char *sub_name);
 static int process_resume_tx_msg(union rr_control_msg *msg,
 				 struct rr_packet *pkt);
 static void ipc_router_reset_conn(struct msm_ipc_router_remote_port *rport_ptr);
+extern int modem_resume_irq_flag_function(void);/*ASUS-BBSP Log Modem Wake Up Info+*/
 static int ipc_router_get_xprt_info_ref(
 		struct msm_ipc_router_xprt_info *xprt_info);
 static void ipc_router_put_xprt_info_ref(
@@ -376,6 +377,12 @@ static void ipc_router_log_msg(void *log_ctx, uint32_t xchng_type,
 			svcId, svcIns, hdr->src_node_id, hdr->src_port_id,
 			hdr->dst_node_id, hdr->dst_port_id,
 			(unsigned int)pl_buf, (unsigned int)(pl_buf>>32));
+
+                        /*ASUS-BBSP Log Modem Wake Up Info+++*/
+                        if (modem_resume_irq_flag_function()) {
+                            pr_info("[WakeUpInfo-IPCRTR]svc=0x%x, type=%d, msg=0x%x\n", svcId, (uint8_t)(pl_buf>>0), (uint8_t)(pl_buf>>24));
+                        }
+                        /*ASUS-BBSP Log Modem Wake Up Info---*/
 
 	} else {
 		msg = (union rr_control_msg *)data;
@@ -1525,6 +1532,14 @@ static int msm_ipc_router_lookup_resume_tx_port(
 }
 
 /**
+ * ipc_router_dummy_write_space() - Dummy write space available callback
+ * @sk:	Socket pointer for which the callback is called.
+ */
+void ipc_router_dummy_write_space(struct sock *sk)
+{
+}
+
+/**
  * post_resume_tx() - Post the resume_tx event
  * @rport_ptr: Pointer to the remote port
  * @pkt : The data packet that is received on a resume_tx event
@@ -1560,10 +1575,11 @@ static void post_resume_tx(struct msm_ipc_router_remote_port *rport_ptr,
 				read_lock(&sk->sk_callback_lock);
 				write_space = sk->sk_write_space;
 				read_unlock(&sk->sk_callback_lock);
-				if (write_space)
-					write_space(sk);
 			}
-			if (!write_space)
+			if (write_space &&
+			    write_space != ipc_router_dummy_write_space)
+				write_space(sk);
+			else
 				post_pkt_to_port(local_port, pkt, 1);
 		} else {
 			IPC_RTR_ERR("%s: Local Port %d not Found",

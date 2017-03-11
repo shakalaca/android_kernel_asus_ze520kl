@@ -21,7 +21,7 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
-int isPowerup=0; //ASUS_BSP PJ_Ma+++
+int isBackCamPowerup=0; //ASUS_BSP PJ_Ma+++
 
 static struct msm_sensor_ctrl_t *g_main_ctrl=NULL;	//ASUS_BSP Stimber_Hsueh
 
@@ -130,7 +130,7 @@ int msm_sensor_power_down(struct msm_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 	//ASUS_BSP PJ_Ma+++
-	isPowerup=0;
+	isBackCamPowerup=0;
 	rc = msm_camera_power_down(power_info, sensor_device_type,
 		sensor_i2c_client);
 
@@ -191,9 +191,9 @@ int msm_sensor_power_up(struct msm_sensor_ctrl_t *s_ctrl)
 	}
 
 	if(rc==0){
-		isPowerup=1;
 		if(s_ctrl->id == 0){
 			g_main_ctrl = s_ctrl;
+			isBackCamPowerup=1;
 		}
 	}
 	pr_err("%s : rc=(%d) X\n", __func__, rc); //ASUS_BSP PJ_Ma+++
@@ -1552,7 +1552,7 @@ int sensor_read_temp(uint16_t *tmp)
 
 	if(g_main_ctrl != NULL){
 		mutex_lock(g_main_ctrl->msm_sensor_mutex);
-		if(isPowerup==1){
+		if(isBackCamPowerup==1){
 			sensor_i2c_client = g_main_ctrl->sensor_i2c_client;
 			if(sensor_i2c_client != NULL){
 				do_gettimeofday(&tv_now);
@@ -1567,11 +1567,11 @@ int sensor_read_temp(uint16_t *tmp)
 						mutex_unlock(g_main_ctrl->msm_sensor_mutex);
 						return rc;
 					}
+					tv_prv.tv_sec = tv_now.tv_sec;
+					tv_prv.tv_usec = tv_now.tv_usec;
 				}else{
 					pr_err("temperature : cached (%d) val=%lld\n", temp, val);
 				}
-				tv_prv.tv_sec = tv_now.tv_sec;
-				tv_prv.tv_usec = tv_now.tv_usec;
 			}
 		}else{
 			pr_err("No temperature1!\n");

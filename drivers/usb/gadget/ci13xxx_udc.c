@@ -2122,16 +2122,13 @@ static int _hardware_dequeue(struct ci13xxx_ep *mEp, struct ci13xxx_req *mReq)
 	}
 
 	mReq->req.status = mReq->ptr->token & TD_STATUS;
-	if ((TD_STATUS_HALTED & mReq->req.status) != 0){
-		printk("[usb] TD_STATUS_HALTED\n");
+	if ((TD_STATUS_HALTED & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	}else if ((TD_STATUS_DT_ERR & mReq->req.status) != 0){
-		printk("[usb] TD_STATUS_DT_ERR\n");
+	else if ((TD_STATUS_DT_ERR & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	}else if ((TD_STATUS_TR_ERR & mReq->req.status) != 0){
-		printk("[usb] TD_STATUS_TR_ERR\n");
+	else if ((TD_STATUS_TR_ERR & mReq->req.status) != 0)
 		mReq->req.status = -1;
-	}
+
 	mReq->req.actual   = mReq->ptr->token & TD_TOTAL_BYTES;
 	mReq->req.actual >>= ffs_nr(TD_TOTAL_BYTES);
 	mReq->req.actual   = mReq->req.length - mReq->req.actual;
@@ -2435,13 +2432,13 @@ static void isr_resume_handler(struct ci13xxx *udc)
 			  CI13XXX_CONTROLLER_RESUME_EVENT);
 		if (udc->transceiver)
 			usb_phy_set_suspend(udc->transceiver, 0);
+		udc->suspended = 0;
 		udc->driver->resume(&udc->gadget);
 		spin_lock(udc->lock);
 
 		if (udc->rw_pending)
 			purge_rw_queue(udc);
 
-		udc->suspended = 0;
 	}
 }
 
@@ -3712,12 +3709,10 @@ static irqreturn_t udc_irq(void)
 				pr_info("%s: USB reset interrupt is delayed\n",
 								__func__);
 			isr_reset_handler(udc);
-			printk("[usb] BUS RESET.\n");
 		}
 		if (USBi_PCI & intr) {
 			isr_statistics.pci++;
 			isr_resume_handler(udc);
-			printk("[usb] BUS RESUME.\n");
 		}
 		if (USBi_UEI & intr)
 			isr_statistics.uei++;
@@ -3727,7 +3722,6 @@ static irqreturn_t udc_irq(void)
 			isr_tr_complete_handler(udc);
 		}
 		if (USBi_SLI & intr) {
-			printk("[usb] BUS SUSPEND.\n");
 			isr_suspend_handler(udc);
 			isr_statistics.sli++;
 		}

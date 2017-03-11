@@ -106,7 +106,7 @@ static unsigned char g_front_rw_created = 0; //ASUS_BSP PJ_Ma +++
 //ASUS_BSP Stimber_Hsueh +++
 static unsigned char g_rear_temp_created = 0;
 static void create_rear_temp_proc_file(void);
-extern int isPowerup;
+extern int isBackCamPowerup;
 //ASUS_BSP Stimber_Hsueh ---
 
 static int Sysfs_read_byte_seq(char *filename, int *value, int size); /*ASUS_BSP bill_chen "Implement ois"*/
@@ -2181,7 +2181,7 @@ static int rear_temp_proc_read(struct seq_file *buf, void *v)
 	uint16_t temp = 0;
 	sensor_read_temp(&temp);
 	seq_printf(buf, "%d\n", temp*1000);
-	pr_err("Stimber: Temperature = %d\n", temp);
+	pr_err("Temperature = %d\n", temp);
 
     return 0;
 }

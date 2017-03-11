@@ -20,7 +20,7 @@
  * See also:  complete(), wait_for_completion() (and friends _timeout,
  * _interruptible, _interruptible_timeout, and _killable), init_completion(),
  * reinit_completion(), and macros DECLARE_COMPLETION(),
- * INIT_COMPLETION().
+ * DECLARE_COMPLETION_ONSTACK().
  */
 #if 0
 struct completion {

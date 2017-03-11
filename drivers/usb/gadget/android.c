@@ -80,12 +80,15 @@ MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
 extern void dpNotify(void);
-//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 static int diag_enable = 0;
-//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
+static int persist_ready = 0;
+
 extern int getMACConnect(void);
 extern int resetHostTypeChanged(void);
 extern int getHostTypeChanged(void);
+
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
@@ -546,6 +549,7 @@ static void android_disable(struct android_dev *dev)
 	struct android_configuration *conf;
 
 	if (dev->disable_depth++ == 0) {
+		usb_gadget_autopm_get(cdev->gadget);
 		if (gadget_is_dwc3(cdev->gadget)) {
 			/* Cancel pending control requests */
 			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
@@ -564,6 +568,7 @@ static void android_disable(struct android_dev *dev)
 			list_for_each_entry(conf, &dev->configs, list_item)
 				usb_remove_config(cdev, &conf->usb_config);
 		}
+		usb_gadget_autopm_put_async(cdev->gadget);
 	}
 }
 
@@ -952,7 +957,6 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 	static int rmnet_initialized, ports;
 
 	if (!rmnet_initialized) {
-		rmnet_initialized = 1;
 		strlcpy(buf, rmnet_transports, sizeof(buf));
 		b = strim(buf);
 
@@ -981,8 +985,11 @@ static int rmnet_function_bind_config(struct android_usb_function *f,
 		err = rmnet_gport_setup();
 		if (err) {
 			pr_err("rmnet: Cannot setup transports");
+			frmnet_deinit_port();
+			ports = 0;
 			goto out;
 		}
+		rmnet_initialized = 1;
 	}
 
 	for (i = 0; i < ports; i++) {
@@ -1911,6 +1918,19 @@ static int serial_function_bind_config(struct android_usb_function *f,
 			}
 		}
 	}
+	/*
+	 * Make sure we always have two serials ports initialized to allow
+	 * switching composition from 1 serial function to 2 serial functions.
+	 * Mark 2nd port to use tty if user didn't specify transport.
+	 */
+	if ((config->instances_on == 1) && !serial_initialized) {
+		err = gserial_init_port(ports, "tty", "serial_tty");
+		if (err) {
+			pr_err("serial: Cannot open port '%s'", "tty");
+			goto out;
+		}
+		config->instances_on++;
+	}
 
 	/* limit the serial ports init only for boot ports */
 	if (ports > config->instances_on)
@@ -1925,8 +1945,7 @@ static int serial_function_bind_config(struct android_usb_function *f,
 		goto out;
 	}
 
-	config->instances_on = ports;
-	for (i = 0; i < ports; i++) {
+	for (i = 0; i < config->instances_on; i++) {
 		config->f_serial_inst[i] = usb_get_function_instance("gser");
 		if (IS_ERR(config->f_serial_inst[i])) {
 			err = PTR_ERR(config->f_serial_inst[i]);
@@ -2152,12 +2171,11 @@ rndis_function_bind_config(struct android_usb_function *f,
 	pr_info("%s MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", __func__,
 		rndis->ethaddr[0], rndis->ethaddr[1], rndis->ethaddr[2],
 		rndis->ethaddr[3], rndis->ethaddr[4], rndis->ethaddr[5]);
-	/*
+
 	if (rndis->ethaddr[0])
 		dev = gether_setup_name(c->cdev->gadget, dev_addr, host_addr,
 					NULL, qmult, "rndis");
 	else
-	*/
 		dev = gether_setup_name(c->cdev->gadget, dev_addr, host_addr,
 					rndis->ethaddr, qmult, "rndis");
 	if (IS_ERR(dev)) {
@@ -3173,6 +3191,7 @@ static int android_init_functions(struct android_usb_function **functions,
 			* index 1 is for android1 device
 			*/
 
+	cdev->use_os_string = true;
 	for (; (f = *functions++); index++) {
 		f->dev_name = kasprintf(GFP_KERNEL, "f_%s", f->name);
 		f->android_dev = NULL;
@@ -3397,6 +3416,9 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	int is_ffs;
 	int ffs_enabled = 0;
 
+	if(!persist_ready)
+		return -EBUSY;
+
 	mutex_lock(&dev->mutex);
 
 	if (dev->enabled) {
@@ -3419,18 +3441,17 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	}
 
 	strlcpy(buf, buff, sizeof(buf));
-//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 	if(diag_enable == 1){
 		strlcpy(buf, "diag,serial,rmnet,adb", sizeof("diag,serial,rmnet,adb"));
-	}else if (diag_enable == 2){
+	}else if(diag_enable == 2){
 		strlcpy(buf, "rndis,serial,diag,adb", sizeof("rndis,serial,diag,adb"));
 	}else{
 		strlcpy(buf, buff, sizeof(buf));
 	}
-
-//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
 	b = strim(buf);
-	
+
 	printk("[USB] func:%s\n",buf);
 
 	if(getMACConnect()){
@@ -3548,6 +3569,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		 * pull-up is enabled immediately. The enumeration is
 		 * reliable with 100 msec delay.
 		 */
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 		if(diag_enable == 1){
 			cdev->desc.idVendor = __constant_cpu_to_le16(0x05C6);
 			cdev->desc.idProduct = __constant_cpu_to_le16(0x9091);
@@ -3556,6 +3578,7 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 			cdev->desc.idVendor = __constant_cpu_to_le16(0x05C6);
 			cdev->desc.idProduct = __constant_cpu_to_le16(0x90B6);
 		}
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
 		list_for_each_entry(conf, &dev->configs, list_item)
 			list_for_each_entry(f_holder, &conf->enabled_functions,
 						enabled_list) {
@@ -3647,7 +3670,7 @@ out:
 	return snprintf(buf, PAGE_SIZE, "%s\n", state);
 }
 
-//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 static ssize_t diag_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -3659,6 +3682,21 @@ static ssize_t diag_store(struct device *pdev, struct device_attribute *attr,
 	sscanf(buff, "%d", &diag_enable);
 	return size;
 }
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
+
+static ssize_t pready_show(struct device *pdev, struct device_attribute *attr,
+			   char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", persist_ready);
+}
+static ssize_t pready_store(struct device *pdev, struct device_attribute *attr,
+			    const char *buff, size_t size)
+{
+	sscanf(buff, "%d", &persist_ready);
+	return size;
+}
+
+//ASUS_BSP+++ "[USB][NA][OTHER] Add ASUS SSN Support"
 static ssize_t serial_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -3678,7 +3716,7 @@ static ssize_t serial_store(struct device *pdev, struct device_attribute *attr,
 	}
 	return size;
 }
-//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP--- "[USB][NA][OTHER] Add ASUS SSN Support"
 
 #define ANDROID_DEV_ATTR(field, format_string)				\
 static ssize_t								\
@@ -3780,9 +3818,11 @@ static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 		remote_wakeup_show, remote_wakeup_store);
 
-//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 static DEVICE_ATTR(diag, S_IRUGO | S_IWUSR, diag_show, diag_store);
-//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
+
+static DEVICE_ATTR(pready, S_IRUGO | S_IWUSR, pready_show, pready_store);
 
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_idVendor,
@@ -3797,9 +3837,10 @@ static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_functions,
 	&dev_attr_enable,
 	&dev_attr_pm_qos,
-//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 	&dev_attr_diag,
-//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
+	&dev_attr_pready,
 	&dev_attr_up_pm_qos_sample_sec,
 	&dev_attr_down_pm_qos_sample_sec,
 	&dev_attr_up_pm_qos_threshold,

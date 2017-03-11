@@ -36,9 +36,6 @@
 #include "kgsl_trace.h"
 #include "kgsl_compat.h"
 
-unsigned long setuptimer_time=0, timer_endtime=0;
-extern struct FENCEDEBUG *fencedebug;
-
 /*
  * Define an kmem cache for the memobj structures since we allocate and free
  * them so frequently
@@ -83,7 +80,7 @@ void kgsl_dump_syncpoints(struct kgsl_device *device,
 		}
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
 			if (event->handle)
-				dev_err(device->dev, "  fence: [%p] %s\n",
+				dev_err(device->dev, "  fence: [%pK] %s\n",
 					event->handle->fence,
 					event->handle->name);
 			else
@@ -99,34 +96,11 @@ static void _kgsl_cmdbatch_timer(unsigned long data)
 	struct kgsl_cmdbatch *cmdbatch = (struct kgsl_cmdbatch *) data;
 	struct kgsl_cmdbatch_sync_event *event;
 	unsigned int i;
-	int drawctxtlock_status;
-	int kgsl_cmdbatch_event_pending_result;
 
-	// For sync_fence_get_status
-	unsigned int syncpoint_count;
-	struct list_head *pos;
-	int fence_status = 1; // fence initialized as signaled (1: signaled; 0:active; <0: error)
-
-	printk("kgsl _kgsl_cmdbatch_timer()\n");
-
-	timer_endtime=jiffies;
-
-	if (cmdbatch == NULL || cmdbatch->context == NULL){
-		if(cmdbatch == NULL)
-			printk("kgsl _kgsl_cmdbatch_timer cmdbatch is NULL\n");
-		else if(cmdbatch->context == NULL)
-			printk("kgsl _kgsl_cmdbatch_timer cmdbatch->context is NULL\n");
-
+	if (cmdbatch == NULL || cmdbatch->context == NULL)
 		return;
-	}
-
-	if(IS_ERR(cmdbatch))
-		printk("kgsl _kgsl_cmdbatch_timer cmdbatch is err\n");
 
 	device = cmdbatch->context->device;
-
-	printk("kgsl mod_timer timer address %p _kgsl_cmdbatch_timer address %p\n",
-		fencedebug->mod_timer_address, &cmdbatch->timer);
 
 	dev_err(device->dev,
 		"kgsl: possible gpu syncpoint deadlock for context %d timestamp %d\n",
@@ -136,39 +110,12 @@ static void _kgsl_cmdbatch_timer(unsigned long data)
 	kgsl_context_dump(cmdbatch->context);
 	clear_bit(CMDBATCH_FLAG_FENCE_LOG, &cmdbatch->priv);
 
-	printk("kgsl setuptimer_jiffies=%lu kgsl_cmdbatch_timer_start_jiffies=%lu end_jiffies=%lu\n",
-		setuptimer_time, fencedebug->kgsl_cmdbatch_timer_starttime, timer_endtime);
-	printk("kgsl _kgsl_cmdbatch_timer now jiffies %lu\n", jiffies);
-	printk("kgsl _kgsl_cmdbatch_timer cmdbatch->expires %lu\n", cmdbatch->expires);
-	printk("kgsl _kgsl_cmdbatch_timer cmdbatch->timer.expires %lu\n", cmdbatch->timer.expires);
-	printk("kgsl _kgsl_cmdbatch_timer cmdbatch->timeout_jiffies %lu\n", cmdbatch->timeout_jiffies);
-
-	drawctxtlock_status=spin_is_locked(fencedebug->drawctxtlock_address);
-	if(!drawctxtlock_status){
-		printk("kgsl _kgsl_cmdbatch_timer drawctxt_lock_status: unlocked %d\n",
-			drawctxtlock_status);
-	}
-	else {
-		printk("kgsl _kgsl_cmdbatch_timer drawctxt_lock_status: locked %d\n",
-			drawctxtlock_status);
-	}
-
-	printk("kgsl adreno_dispatcher_get_cmdbatch drawctxt_lock starttime=%lu endtime=%lu\n",
-		fencedebug->drawctxtlock_starttime, fencedebug->drawctxtlock_endtime);
-
 	dev_err(device->dev, "      pending events:\n");
-
-	dev_err(device->dev, "kgsl_dump_syncpoints -----\n");
-	kgsl_dump_syncpoints(device, cmdbatch);
-	dev_err(device->dev, "kgsl_dump_syncpoints -----\n");
 
 	for (i = 0; i < cmdbatch->numsyncs; i++) {
 		event = &cmdbatch->synclist[i];
 
-		kgsl_cmdbatch_event_pending_result=kgsl_cmdbatch_event_pending(cmdbatch, i);
-		printk("kgsl kgsl_cmdbatch_event_pending(cmdbatch, %d)=%d\n",
-			i, kgsl_cmdbatch_event_pending_result);
-		if (!kgsl_cmdbatch_event_pending_result)
+		if (!kgsl_cmdbatch_event_pending(cmdbatch, i))
 			continue;
 
 		switch (event->type) {
@@ -178,44 +125,10 @@ static void _kgsl_cmdbatch_timer(unsigned long data)
 			break;
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
 			if (event->handle != NULL) {
-				if(event->context==NULL)
-					printk("kgsl _kgsl_cmdbatch_timer event->context is NULL\n");
-
-				printk("kgsl event->handle->fence file name %s\n",
-					event->handle->fence->file->f_path.dentry->d_iname);
-
 				dev_err(device->dev, "       [%d] FENCE %s\n",
 				i, event->handle->fence ?
 					event->handle->fence->name : "NULL");
 				kgsl_sync_fence_log(event->handle->fence);
-
-				// Fence status
-				if(event->handle->fence->status==1){ // 1: signaled
-					printk("kgsl event[%d] Fence status: signaled\n",i);
-				}else if (event->handle->fence->status==0){ // 0:active
-					printk("kgsl event[%d] Fence status: active\n",i);
-				}else if(event->handle->fence->status<0){ // <0: error
-					printk("kgsl event[%d] Fence status: error\n",i);
-				}
-
-				// get every syncpoint status in the fence
-				fence_status=1; // fence initialized as signaled (1: signaled; 0:active; <0: error)
-				syncpoint_count=1;
-				list_for_each(pos, &event->handle->fence->pt_list_head) {
-					struct sync_pt *pt = container_of(pos, struct sync_pt, pt_list);
-					int pt_status = pt->status;
-
-					// Syncpoint status
-					if(pt_status==1){ // 1: signaled
-						printk("kgsl Syncpoint[%u] status: signaled\n",syncpoint_count);
-					}else if (pt_status==0){ // 0:active
-						printk("kgsl Syncpoint[%u] status: active\n",syncpoint_count);
-					}else if(pt_status<0){ // <0: error
-						printk("kgsl Syncpoint[%u] status: error\n",syncpoint_count);
-					}
-
-					syncpoint_count++;
-				}
 			}
 			break;
 		}
@@ -713,8 +626,6 @@ struct kgsl_cmdbatch *kgsl_cmdbatch_create(struct kgsl_device *device,
 				| KGSL_CMDBATCH_MEMLIST
 				| KGSL_CMDBATCH_PROFILING
 				| KGSL_CMDBATCH_PROFILING_KTIME);
-
-	setuptimer_time=jiffies;
 
 	/* Add a timer to help debug sync deadlocks */
 	setup_timer(&cmdbatch->timer, _kgsl_cmdbatch_timer,

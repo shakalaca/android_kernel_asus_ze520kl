@@ -451,10 +451,10 @@ static void acc_hid_close(struct hid_device *hid)
 {
 }
 
-static int acc_hid_raw_request(struct hid_device *hid,
-	unsigned char reportnum, __u8 *buf, size_t len, unsigned char rtype, int reqtype)
+static int acc_hid_raw_request(struct hid_device *hid, unsigned char reportnum,
+	__u8 *buf, size_t len, unsigned char rtype, int reqtype)
 {
-        return 0;
+	return 0;
 }
 
 static struct hid_ll_driver acc_hid_ll_driver = {
@@ -1303,12 +1303,12 @@ static int acc_setup(void)
 	INIT_DELAYED_WORK(&dev->start_work, acc_start_work);
 	INIT_WORK(&dev->hid_work, acc_hid_work);
 
-	/* _acc_dev must be set before calling usb_gadget_register_driver */
-	_acc_dev = dev;
-
 	ret = misc_register(&acc_device);
 	if (ret)
 		goto err;
+
+	/* _acc_dev must be set before calling usb_gadget_register_driver */
+	_acc_dev = dev;
 
 	return 0;
 

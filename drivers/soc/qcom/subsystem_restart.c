@@ -40,6 +40,8 @@
 
 #include <asm/current.h>
 
+#include "peripheral-loader.h"
+
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
@@ -52,7 +54,7 @@ module_param(enable_debug, int, S_IRUGO | S_IWUSR);
 #define SHUTDOWN_ACK_MAX_LOOPS	100
 #define SHUTDOWN_ACK_DELAY_MS	100
 
-#include "linux/asusdebug.h"/*ASUS-BBSP Save SSR reason+*/
+#include "linux/asusdebug.h"/*ASUS-BBSP Save SSR reason - Add SSR inform to ASUSEvtLog+*/
 
 /**
  * enum p_subsys_state - state of a subsystem (private)
@@ -270,7 +272,7 @@ static ssize_t firmware_name_store(struct device *dev,
 	pr_info("Changing subsys fw_name to %s\n", buf);
 	mutex_lock(&track->lock);
 	strlcpy(subsys->desc->fw_name, buf,
-			 min(count + 1, sizeof(subsys->desc->fw_name)));
+			min(count + 1, sizeof(subsys->desc->fw_name)));
 	mutex_unlock(&track->lock);
 	return orig_count;
 }
@@ -399,8 +401,8 @@ void subsys_save_reason(char *name, char *reason)
 /*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
 
 	strlcpy(ssr_reason, reason, MAX_SSR_REASON_LEN);
-	ASUSEvtlog("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to ASUSEvtLog+*/
-	SubSysHealthRecord("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to SubSysHealthRecord+*/
+	ASUSEvtlog("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Save SSR reason - Add SSR inform to ASUSEvtLog+*/
+	SubSysHealthRecord("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Save SSR reason - Add SSR inform to SubSysHealthRecord+*/
 }
 /*ASUS-BBSP Save SSR reason---*/
 
@@ -627,25 +629,6 @@ static void disable_all_irqs(struct subsys_device *dev)
 	}
 }
 
-int wait_for_shutdown_ack(struct subsys_desc *desc)
-{
-	int count;
-
-	if (!desc || !desc->shutdown_ack_gpio)
-		return 0;
-
-	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
-		if (gpio_get_value(desc->shutdown_ack_gpio))
-			return count;
-		msleep(SHUTDOWN_ACK_DELAY_MS);
-	}
-
-	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
-
-	return -ETIMEDOUT;
-}
-EXPORT_SYMBOL(wait_for_shutdown_ack);
-
 static int wait_for_err_ready(struct subsys_device *subsys)
 {
 	int ret;
@@ -654,8 +637,8 @@ static int wait_for_err_ready(struct subsys_device *subsys)
 	 * If subsys is using generic_irq in which case err_ready_irq will be 0,
 	 * don't return.
 	 */
-	if ((subsys->desc->generic_irq <= 0 && !subsys->desc->err_ready_irq)
-							|| enable_debug == 1)
+	if ((subsys->desc->generic_irq <= 0 && !subsys->desc->err_ready_irq) ||
+				enable_debug == 1 || is_timeout_disabled())
 		return 0;
 
 	ret = wait_for_completion_timeout(&subsys->err_ready,
@@ -800,6 +783,31 @@ static void subsys_stop(struct subsys_device *subsys)
 	disable_all_irqs(subsys);
 	notify_each_subsys_device(&subsys, 1, SUBSYS_AFTER_SHUTDOWN, NULL);
 }
+
+int wait_for_shutdown_ack(struct subsys_desc *desc)
+{
+	int count;
+	struct subsys_device *dev;
+
+	if (!desc || !desc->shutdown_ack_gpio)
+		return 0;
+
+	dev = find_subsys(desc->name);
+	if (!dev)
+		return 0;
+
+	for (count = SHUTDOWN_ACK_MAX_LOOPS; count > 0; count--) {
+		if (gpio_get_value(desc->shutdown_ack_gpio))
+			return count;
+		else if (subsys_get_crash_status(dev))
+			break;
+		msleep(SHUTDOWN_ACK_DELAY_MS);
+	}
+
+	pr_err("[%s]: Timed out waiting for shutdown ack\n", desc->name);
+	return -ETIMEDOUT;
+}
+EXPORT_SYMBOL(wait_for_shutdown_ack);
 
 void *__subsystem_get(const char *name, const char *fw_name)
 {
@@ -1873,10 +1881,10 @@ static int __init subsys_restart_init(void)
 
 	ssr_reason = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);/*ASUS-BBSP Save SSR reason+*/
 
-/*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
+	/*ASUS-BBSP Skip ramdump or panic in a specific reason+++*/
 	ssr_panic = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
 	ssr_no_dump = kzalloc(sizeof(char) * MAX_SSR_REASON_LEN, GFP_KERNEL);
-/*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
+	/*ASUS-BBSP Skip ramdump or panic in a specific reason---*/
 
 	return 0;
 

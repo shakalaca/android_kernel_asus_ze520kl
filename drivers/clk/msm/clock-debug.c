@@ -287,28 +287,27 @@ static int clock_debug_print_clock(struct clk *c, struct seq_file *m)
 	if (!c || !c->prepare_count)
 		return 0;
 	if ((bIsCXO_clk == true) || (b_clk_dump == true))
-		clock_debug_output(m, 0, "\t");
+	clock_debug_output(m, 0, "\t");
 	do {
 		//[+++]Only dump active clcoks when cxo_clk_src exists
 		if (strcmp(c->dbg_name, "cxo_clk_src")==0)
 			bIsCXO_clk = true;
 		//[---]Only dump active clcoks when cxo_clk_src exists
 		if ((bIsCXO_clk == true) || (b_clk_dump == true)) {
-			if (c->vdd_class)
-				clock_debug_output(m, 1, "%s%s:%u:%u [%ld, %d]", start,
-					c->dbg_name, c->prepare_count, c->count,
-					c->rate, find_vdd_level(c, c->rate));
-			else
-				clock_debug_output(m, 1, "%s%s:%u:%u [%ld]", start,
-					c->dbg_name, c->prepare_count, c->count,
-					c->rate);
-			start = " -> ";
+		if (c->vdd_class)
+			clock_debug_output(m, 1, "%s%s:%u:%u [%ld, %d]", start,
+				c->dbg_name, c->prepare_count, c->count,
+				c->rate, find_vdd_level(c, c->rate));
+		else
+			clock_debug_output(m, 1, "%s%s:%u:%u [%ld]", start,
+				c->dbg_name, c->prepare_count, c->count,
+				c->rate);
+		start = " -> ";
 		}
-
 	} while ((c = clk_get_parent(c)));
 	//[+++]Only dump active clcoks when cxo_clk_src exists
 	if ((bIsCXO_clk == true) || (b_clk_dump == true))
-		clock_debug_output(m, 1, "\n");
+	clock_debug_output(m, 1, "\n");
 	//[---]Only dump active clcoks when cxo_clk_src exists
 
 	return 1;
@@ -342,7 +341,6 @@ static void clock_debug_print_enabled_clocks(struct seq_file *m)
 		clock_debug_output(m, 0, "Enabled clock count: %d\n", cnt);
 	else
 		clock_debug_output(m, 0, "No clocks enabled.\n");
-
 	bIsCXO_clk = false; /*[PM] Reset this flag after clock_debug_print_enabled_clocks()*/
 }
 

@@ -48,9 +48,6 @@
 #include <linux/ctype.h>
 
 #include <asm/uaccess.h>
-//thomas_chu +++
-#include <linux/asus_global.h>
-//thomas_chu ---
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
@@ -897,18 +894,7 @@ void log_buf_kexec_setup(void)
 /* requested log_buf_len from kernel cmdline */
 static unsigned long __initdata new_log_buf_len;
 
-//thomas_chu +++
-struct _asus_global asus_global =
-{
-	.asus_global_magic = ASUS_GLOBAL_MAGIC,
-	.ramdump_enable_magic = ASUS_GLOBAL_RUMDUMP_MAGIC,
-	.kernel_log_addr = __log_buf,
-	.kernel_log_size = __LOG_BUF_LEN,
-//	.kernel_version = ASUS_SW_VER,
-};
-//thomas_chu ---
-
-/* save requested log_buf_len since it's too early to process it */
+/* we practice scaling the ring buffer by powers of 2 */
 static void __init log_buf_len_update(unsigned size)
 {
 	if (size)
@@ -2156,6 +2142,13 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 }
 
 bool console_suspend_enabled = true;
+//[PM]+++Used for Vddmin issue
+bool is_ramdump_enabled = 0;
+bool is_vminTrace_enabled = 0;
+static int Last_count = 0;
+static int vmin_count = 0;
+extern u32  this_count;
+//[PM]---Used for Vddmin issue
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)
@@ -2169,6 +2162,14 @@ module_param_named(console_suspend, console_suspend_enabled,
 MODULE_PARM_DESC(console_suspend, "suspend console during suspend"
 	" and hibernate operations");
 
+//[+++] Create a file node to get the status of getting RAMDUMP
+//  /sys/module/printk/parameters/ramdump_enabled
+//  /sys/module/printk/parameters/vminTrace_enabled
+module_param_named(ramdump_enabled, is_ramdump_enabled,
+		bool, S_IRUGO | S_IWUSR);
+module_param_named(vminTrace_enabled, is_vminTrace_enabled,
+		bool, S_IRUGO | S_IWUSR);
+//[---] Create a file node to get the status of getting RAMDUMP
 /**
  * suspend_console - suspend the console subsystem
  *
@@ -2191,13 +2192,30 @@ void resume_console(void)
 	int i;
 	nSuspendInProgress = 0;
 	ASUSEvtlog("[UTS] System Resume\n");
+	printk("[PM]The status of RAMDUMP : %d\n", is_ramdump_enabled);
 	//[+++]Show GPIO,IRQ, SPMI wakeup information in AsusEvtlog
 	if (pm_pwrcs_ret) {
+		if (is_ramdump_enabled && is_vminTrace_enabled) {
+			printk("[PM] this_count =%d, Last_count = %d, vmin_count = %d\n", this_count, Last_count, vmin_count);
+			if (0 == (this_count - Last_count)) {
+				vmin_count++;
+				if (5 == vmin_count) {
+					ASUSEvtlog("[PM] Vmin can't count, download mode triggered\n");
+					BUG_ON(1);
+				}
+			}else {
+				vmin_count = 0;
+			}
+			Last_count = this_count;
+		}
+		if (gpio_irq_cnt>0) {
+			for (i=0;i<gpio_irq_cnt;i++)
+				ASUSEvtlog("[PM] GPIO triggered: %d\n", gpio_resume_irq[i]);
+			gpio_irq_cnt=0; //clear log count
+		}
 		if (gic_irq_cnt>0) {
 			for (i=0;i<gic_irq_cnt;i++) {
 				ASUSEvtlog("[PM] IRQs triggered: %d", gic_resume_irq[i]);
-				//if (gic_resume_irq[i] == 222)
-					//ASUSEvtlog("[PM] SPMI name : %s", spmi_wakeup);
 			}
 			gic_irq_cnt=0;  //clear log count
 		}
@@ -2353,13 +2371,24 @@ void console_unlock(void)
 	static u64 seen_seq;
 	unsigned long flags;
 	bool wake_klogd = false;
-	bool retry;
+	bool do_cond_resched, retry;
 
 	if (console_suspended) {
 		up_console_sem();
 		return;
 	}
 
+	/*
+	 * Console drivers are called under logbuf_lock, so
+	 * @console_may_schedule should be cleared before; however, we may
+	 * end up dumping a lot of lines, for example, if called from
+	 * console registration path, and should invoke cond_resched()
+	 * between lines if allowable.  Not doing so can cause a very long
+	 * scheduling stall on a slow console leading to RCU stall and
+	 * softlockup warnings which exacerbate the issue with more
+	 * messages practically incapacitating the system.
+	 */
+	do_cond_resched = console_may_schedule;
 	console_may_schedule = 0;
 
 	/* flush buffered message fragment immediately to console */
@@ -2421,6 +2450,9 @@ skip:
 		call_console_drivers(level, text, len);
 		start_critical_timings();
 		local_irq_restore(flags);
+
+		if (do_cond_resched)
+			cond_resched();
 	}
 	console_locked = 0;
 
@@ -2485,6 +2517,25 @@ void console_unblank(void)
 	for_each_console(c)
 		if ((c->flags & CON_ENABLED) && c->unblank)
 			c->unblank();
+	console_unlock();
+}
+
+/**
+ * console_flush_on_panic - flush console content on panic
+ *
+ * Immediately output all pending messages no matter what.
+ */
+void console_flush_on_panic(void)
+{
+	/*
+	 * If someone else is holding the console lock, trylock will fail
+	 * and may_schedule may be set.  Ignore and proceed to unlock so
+	 * that messages are flushed out.  As this can be called from any
+	 * context and we don't want to get preempted while flushing,
+	 * ensure may_schedule is cleared.
+	 */
+	console_trylock();
+	console_may_schedule = 0;
 	console_unlock();
 }
 
@@ -3260,52 +3311,5 @@ void printk_buffer_rebase(void)
 	memset_nc(asus_log_buf, 0, PRINTK_BUFFER_SLOT_SIZE);
 	is_logging_to_asus_buffer = true;
 
-/*
- * Following code does not work.
- * We have to fix it.
- */
-#if 0
-	char *new_log_buf;
-	unsigned long flags;
-
-	new_log_buf = g_printk_log_buf = (char *) PRINTK_BUFFER_VA;
-	printk("printk_buffer_rebase new_log_buf=%p\n", new_log_buf);
-	if (!new_log_buf) {
-		printk( "%s: allocation failed\n", __func__);
-		goto out;
-	}
-
-	if (log_buf_len > PRINTK_BUFFER_SLOT_SIZE) {
-		/* Becasue we memcpy original log_buf to new_log_buf,
-		 * we assume that original log_buf length is less than
-		 * the new log_buf length to prevent from overwritting.
-		 */
-		printk("%s: BUG:old log_buf_len=%d > new log_buf_len=%d\n",
-				__func__, log_buf_len, PRINTK_BUFFER_SLOT_SIZE);
-		return;
-	}
-
-	printk("printk_buffer_rebase original log_buf=%p, log_buf_len=%d\n",
-			log_buf, log_buf_len);
-	//~ memset(g_printk_log_buf, 0, PRINTK_BUFFER_SLOT_SIZE);
-
-	raw_spin_lock_irqsave(&logbuf_lock, flags);
-
-	//~ memcpy(new_log_buf, log_buf, log_buf_len);
-	log_buf_len = PRINTK_BUFFER_SLOT_SIZE;
-	log_buf = new_log_buf;
-
-	asus_global.kernel_log_addr = log_buf;
-	asus_global.kernel_log_size = log_buf_len;
-	memset(asus_global.kernel_version,0,sizeof(asus_global.kernel_version));
-	strncpy(asus_global.kernel_version,ASUS_SW_VER,sizeof(asus_global.kernel_version));
-
-	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
-
-	printk("%s: log_buf_len=%d\n", __func__, log_buf_len);
-
-out:
-	return;
-#endif
 }
 EXPORT_SYMBOL(printk_buffer_rebase);

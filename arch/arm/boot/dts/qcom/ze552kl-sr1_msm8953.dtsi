@@ -40,13 +40,19 @@
 		modem_mem: modem_region@0 {
 			compatible = "removed-dma-pool";
 			no-map-fixup;
-			reg = <0x0 0x86c00000 0x0 0x5600000>;
+			reg = <0x0 0x86c00000 0x0 0x6a00000>;
 		};
 
-		reloc_mem: reloc_region@0 {
+		adsp_fw_mem: adsp_fw_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0x8c200000 0x0 0x1800000>;
+			reg = <0x0 0x8d600000 0x0 0x1100000>;
+		};
+
+		wcnss_fw_mem: wcnss_fw_region@0 {
+			compatible = "removed-dma-pool";
+			no-map;
+			reg = <0x0 0x8e700000 0x0 0x700000>;
 		};
 
 		venus_mem: venus_region@0 {
@@ -94,13 +100,12 @@
 			alignment = <0 0x400000>;
 			size = <0 0x800000>;
 		};
-
+		
 		asus_debug_mem: asus_debug_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
 			reg = <0x0 0xA0000000 0x0 0x00200000>;
 		};
-
 	};
 
 	aliases {
@@ -1212,7 +1217,6 @@
 		      <0x6194000 0x1000>;
 		reg-names = "etm-base", "debug-base";
 
-		qcom,save-restore-disable;
 		qcom,coresight-jtagmm-cpu = <&CPU2>;
 
 		clocks = <&clock_gcc clk_qdss_clk>,
@@ -1543,6 +1547,8 @@
 		qcom,use-sw-aes-xts-algo;
 		qcom,use-sw-aes-ccm-algo;
 		qcom,use-sw-ahash-algo;
+		qcom,use-sw-hmac-algo;
+		qcom,use-sw-aead-algo;
 		qcom,ce-opp-freq = <100000000>;
 	};
 
@@ -1831,6 +1837,8 @@
 		qcom,proxy-clock-names = "xo";
 		qcom,active-clock-names = "iface_clk", "bus_clk", "mem_clk";
 
+		qcom,pas-id = <5>;
+		qcom,pil-mss-memsetup;
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
 		qcom,sysmon-id = <0>;
@@ -1886,7 +1894,7 @@
 		/* GPIO output to lpass */
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_2_out 0 0>;
 
-		memory-region = <&reloc_mem>;
+		memory-region = <&adsp_fw_mem>;
 	};
 
 	qcom,venus@1de0000 {
@@ -1966,7 +1974,7 @@
 
 		/* GPIO output to wcnss */
 		qcom,gpio-force-stop = <&smp2pgpio_ssr_smp2p_4_out 0 0>;
-		memory-region = <&reloc_mem>;
+		memory-region = <&wcnss_fw_mem>;
 	};
 
 	usb3: ssusb@7000000{
@@ -2088,12 +2096,15 @@
 		reg = <0x079000 0x180>,
 			<0x070f8800 0x400>,
 			<0x01841030 0x4>,
-			<0x0193f044 0x4>;
+			<0x0193f044 0x4>,
+			<0x0193f020 0x4>;
 		reg-names = "qusb_phy_base",
 			"qscratch_base",
 			"ref_clk_addr",
-			"tcsr_phy_clk_scheme_sel";
+			"tcsr_phy_clk_scheme_sel",
+			"tcsr_phy_level_shift_keeper";
 
+		USB3_GDSC-supply = <&gdsc_usb30>;
 		vdd-supply = <&pm8953_l3>;
 		vdda18-supply = <&pm8953_l7>;
 		vdda33-supply = <&pm8953_l13>;
@@ -2165,15 +2176,18 @@
 					0x00 0x90
 					0x9F 0x1C
 					0x00 0x18>;
+
 		phy_type= "utmi";
 
 		clocks = <&clock_gcc clk_bb_clk1>,
 			 <&clock_gcc clk_gcc_qusb_ref_clk>,
 			 <&clock_gcc clk_gcc_usb_phy_cfg_ahb_clk>,
-			 <&clock_gcc clk_gcc_qusb2_phy_reset>;
+			 <&clock_gcc clk_gcc_qusb2_phy_reset>,
+			 <&clock_gcc clk_gcc_pcnoc_usb3_axi_clk>,
+			 <&clock_gcc clk_gcc_usb30_master_clk>;
 
 		clock-names = "ref_clk_src", "ref_clk", "cfg_ahb_clk",
-			      "phy_reset";
+			      "phy_reset", "iface_clk", "core_clk";
 
 	};
 
@@ -2299,12 +2313,6 @@
 		reg = <0x086000c8 0xc8>;
 		qcom,pm-qos-latency = <2 213 11028>;
 	};
-/*+++[PM]Add nc_gpio group*/
-	nc_gpio {
-		pinctrl-states = "default";
-		pinctrl-0 = <&nc_gpio_default>;
-	};
-/*---[PM]Add nc_gpio group*/
 };
 
 #include "msm-pm8953-rpm-regulator.dtsi"

@@ -88,7 +88,7 @@
 		pinctrl-0 = <&ap3045_default>;
 		pinctrl-1 = <&ap3045_sleep>;
 		qcom,alsps-gpio = <&tlmm 43 0x0>;
-	};
+};
 	/* ASUS_BSP --- ShawnHuang CM36686 */
 
 	/* ASUS_BSP +++ ShawnHuang AP3045 */
@@ -148,17 +148,6 @@
 			debounce-interval = <15>;
 		};
 	};
-
-	// ASUS_BSP +++ ShawnHuang HALL sensor
-	hall_sensor {
-		compatible = "qcom,hall";
-		pinctrl-names = "hall_gpio_high","hall_gpio_low";
-		pinctrl-0 = <&gpio_hall_active>;
-		pinctrl-1 = <&gpio_hall_suspend>;			
-		qcom,hall-gpio = <&tlmm 12 0x0>;
-	};
-	// ASUS_BSP --- ShawnHuang HALL sensor
-
 	// ASUS_BSP +++ Jacob Fingerprint sensor
 	asus-fingerprint {
 		compatible = "asus,fingerprint";
@@ -177,6 +166,16 @@
 		pinctrl-1 = <&fp_int_suspend>;
 	};
 	// ASUS_BSP --- Jacob Fingerprint sensor
+
+	// ASUS_BSP +++ ShawnHuang HALL sensor
+	hall_sensor {
+		compatible = "qcom,hall";
+		pinctrl-names = "hall_gpio_high","hall_gpio_low";
+		pinctrl-0 = <&gpio_hall_active>;
+		pinctrl-1 = <&gpio_hall_suspend>;			
+		qcom,hall-gpio = <&tlmm 12 0x0>;
+	};
+	// ASUS_BSP --- ShawnHuang HALL sensor
 
 	hbtp {
 		compatible = "qcom,hbtp-input";
@@ -198,7 +197,7 @@
 	qcom,lra-res-cal-period = <0>;
 	qcom,wave-play-rate-us = <4165>;
 };
-/*
+
 &wled {
 	qcom,cons-sync-write-delay-us = <1000>;
 };
@@ -208,7 +207,7 @@
 	reg = <0xd300 0x100>;
 	qcom,follow-otst2-rb-disabled;
 };
-*/
+
 #include "ze552kl-sr1_msm8953-mdss-panels.dtsi"
 
 &mdss_mdp {

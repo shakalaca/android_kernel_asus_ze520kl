@@ -134,6 +134,7 @@ int ini_get_key(char *filedata, char * section, char * key, char * value)
 r_cfg_end:
 	kfree(buf1);
 	kfree(buf2);
+
 	return ret; 
 } 
 /*************************************************************

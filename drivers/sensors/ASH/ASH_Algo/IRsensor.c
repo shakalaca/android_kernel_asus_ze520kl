@@ -1419,7 +1419,7 @@ bool proximity_check_status(void)
 	}else{ 
 		status = false;
 	}
-	log("proximity_check_status : %s , (adc, hi_cal+autok_max)=(%d, %d)\n", 
+	log("proximity_check_status : %s , (adc, hi_cal + AutoK)MAX)=(%d, %d)\n", 
 		status?"Close":"Away", adc_value, threshold_high);
 	
 	if(g_ps_data->Device_switch_on == false){

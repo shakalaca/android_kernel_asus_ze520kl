@@ -305,6 +305,16 @@ enum msm_pcm_routing_event {
 	MSM_PCM_RT_EVT_MAX,
 };
 
+enum {
+	EXT_EC_REF_NONE = 0,
+	EXT_EC_REF_PRI_MI2S_TX,
+	EXT_EC_REF_SEC_MI2S_TX,
+	EXT_EC_REF_TERT_MI2S_TX,
+	EXT_EC_REF_QUAT_MI2S_TX,
+	EXT_EC_REF_QUIN_MI2S_TX,
+	EXT_EC_REF_SLIM_1_TX,
+};
+
 #define INVALID_SESSION -1
 #define SESSION_TYPE_RX 0
 #define SESSION_TYPE_TX 1
@@ -390,5 +400,7 @@ void msm_pcm_routing_acquire_lock(void);
 void msm_pcm_routing_release_lock(void);
 
 void msm_pcm_routing_reg_stream_app_type_cfg(int fedai_id, int app_type,
-					int acdb_dev_id, int sample_rate);
+			int acdb_dev_id, int sample_rate, int session_type);
+int msm_pcm_routing_get_stream_app_type_cfg(int fedai_id, int session_type,
+			int *app_type, int *acdb_dev_id, int *sample_rate);
 #endif /*_MSM_PCM_H*/

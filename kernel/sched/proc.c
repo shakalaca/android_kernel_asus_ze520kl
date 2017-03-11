@@ -10,7 +10,6 @@
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 extern struct work_struct __dumpthread_work;
-
 /*
  * Global load-average calculations
  *
@@ -321,9 +320,10 @@ static void calc_global_nohz(void)
 
 		calc_load_update += n * LOAD_FREQ;
 	}
+
 	printk("loadavg %lu.%02lu  %ld/%d \n", LOAD_INT(avenrun[0]), LOAD_FRAC(avenrun[0]), nr_running(), nr_threads);
 	if(LOAD_INT(avenrun[0]) > 14 )
-            schedule_work(&__dumpthread_work);
+	    schedule_work(&__dumpthread_work);
 	/*
 	 * Flip the idle index...
 	 *

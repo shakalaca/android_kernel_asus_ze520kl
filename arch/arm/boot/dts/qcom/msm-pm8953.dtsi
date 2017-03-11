@@ -150,7 +150,7 @@
 			gpio@c700 {
 				reg = <0xc700 0x100>;
 				qcom,pin-num = <8>;
-				status = "ok";
+				status = "disabled";
 			};
 		};
 
@@ -197,7 +197,7 @@
 				qcom,hw-settle-time = <0>;
 				qcom,fast-avg-setup = <0>;
 			};
-			
+
 			chan@b {
 				label = "die_temp_asus";
 				reg = <8>;

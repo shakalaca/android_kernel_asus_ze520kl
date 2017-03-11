@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013, Sony Mobile Communications AB.
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,7 @@
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/spinlock.h>
+#include <linux/syscore_ops.h>
 #include <linux/reboot.h>
 #include <linux/irqchip/msm-mpm-irq.h>
 #include "../core.h"
@@ -70,6 +71,12 @@ struct msm_pinctrl {
 	const struct msm_pinctrl_soc_data *soc;
 	void __iomem *regs;
 };
+
+//[+++][Power]Add for GPIO wakeup debug
+int gpio_irq_cnt, gpio_resume_irq[8];
+//[---][Power]Add for GPIO wakeup debug
+
+static struct msm_pinctrl *msm_pinctrl_data;
 
 static inline struct msm_pinctrl *to_msm_pinctrl(struct gpio_chip *gc)
 {
@@ -528,18 +535,37 @@ static void msm_gpio_dbg_show_one(struct seq_file *s,
 	seq_printf(s, " %s", pulls[pull]);
 }
 
+/* ASUS_BSP Freddy +++ To prevent system crash, Apps will not have access to gpio 135~138 used by TZ*/
+static int is_tz_gpio(unsigned gpio)
+{
+	switch (gpio) {
+/*	case 0:
+	case 1:
+	case 2:
+	case 3:*/
+	case 135:
+	case 136:
+	case 137:
+	case 138:
+		return 1;
+	default:
+		return 0;
+	}
+}
+/* ASUS_BSP Freddy --- */
+
 static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 {
 	unsigned gpio = chip->base;
 	unsigned i;
 
 	for (i = 0; i < chip->ngpio; i++, gpio++) {
-	    /* ASUS_BSP: To prevent system crash, Apps will not have access to gpio 135~138 used by TZ +++*/
-	    if(i!= 135 && i!= 136 && i!= 137 && i!= 138){
+		/* ASUS_BSP Freddy +++ To prevent system crash, Apps will not have access to gpio 135~138 used by TZ*/
+		if (is_tz_gpio(gpio))
+			continue;
+		/* ASUS_BSP Freddy --- */
 		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
 		seq_puts(s, "\n");
-	    }
-	    /* ASUS_BSP: To prevent system crash, Apps will not have access to gpio 135~138 used by TZ ---*/
 	}
 }
 
@@ -810,7 +836,6 @@ static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 	int i;
 
 	chained_irq_enter(chip, desc);
-
 	/*
 	 * Each pin has it's own IRQ status register, so use
 	 * enabled_irq bitmap to limit the number of reads.
@@ -824,7 +849,6 @@ static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 			handled++;
 		}
 	}
-
 	/* No interrupts were flagged */
 	if (handled == 0)
 		handle_bad_irq(irq, desc);
@@ -932,6 +956,62 @@ static void msm_pinctrl_ebi2_emmc_enable(struct msm_pinctrl *pctrl,
 	writel_relaxed(val, pctrl->regs + TLMM_EBI2_EMMC_GPIO_CFG);
 }
 
+#ifdef CONFIG_PM
+static int msm_pinctrl_suspend(void)
+{
+	return 0;
+}
+
+static void msm_pinctrl_resume(void)
+{
+	int i, irq, j;
+	u32 val;
+	unsigned long flags;
+	struct irq_desc *desc;
+	const struct msm_pingroup *g;
+	const char *name = "null";
+	struct msm_pinctrl *pctrl = msm_pinctrl_data;
+
+	if (!msm_show_resume_irq_mask)
+		return;
+	//[+++]Add GPIO wakeup information
+	for(j = 0; j < 8; j++)
+		gpio_resume_irq[j] = 0;
+	gpio_irq_cnt=0;
+	//[---]Add GPIO wakeup information
+
+	spin_lock_irqsave(&pctrl->lock, flags);
+	for_each_set_bit(i, pctrl->enabled_irqs, pctrl->chip.ngpio) {
+		g = &pctrl->soc->groups[i];
+		val = readl_relaxed(pctrl->regs + g->intr_status_reg);
+		if (val & BIT(g->intr_status_bit)) {
+			irq = irq_find_mapping(pctrl->chip.irqdomain, i);
+			desc = irq_to_desc(irq);
+			if (desc == NULL)
+				name = "stray irq";
+			else if (desc->action && desc->action->name)
+				name = desc->action->name;
+
+			pr_warn("%s: %d triggered %s\n", __func__, irq, name);
+			if(gpio_irq_cnt < 8)
+				gpio_resume_irq[gpio_irq_cnt]=(unsigned int)irq;
+			gpio_irq_cnt++;
+		}
+	}
+	if(gpio_irq_cnt >= 8)
+		gpio_irq_cnt = 7;
+	spin_unlock_irqrestore(&pctrl->lock, flags);
+}
+#else
+#define msm_pinctrl_suspend NULL
+#define msm_pinctrl_resume NULL
+#endif
+
+static struct syscore_ops msm_pinctrl_pm_ops = {
+	.suspend = msm_pinctrl_suspend,
+	.resume = msm_pinctrl_resume,
+};
+
 int msm_pinctrl_probe(struct platform_device *pdev,
 		      const struct msm_pinctrl_soc_data *soc_data)
 {
@@ -940,7 +1020,8 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	int ret;
 	u32 tlmm_emmc_boot_select;
 
-	pctrl = devm_kzalloc(&pdev->dev, sizeof(*pctrl), GFP_KERNEL);
+	msm_pinctrl_data = pctrl = devm_kzalloc(&pdev->dev,
+				sizeof(*pctrl), GFP_KERNEL);
 	if (!pctrl) {
 		dev_err(&pdev->dev, "Can't allocate msm_pinctrl\n");
 		return -ENOMEM;
@@ -986,6 +1067,7 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 	pctrl->irq_chip_extn = &mpm_pinctrl_extn;
 	platform_set_drvdata(pdev, pctrl);
 
+	register_syscore_ops(&msm_pinctrl_pm_ops);
 	dev_dbg(&pdev->dev, "Probed Qualcomm pinctrl driver\n");
 
 	return 0;
@@ -1000,6 +1082,7 @@ int msm_pinctrl_remove(struct platform_device *pdev)
 	pinctrl_unregister(pctrl->pctrl);
 
 	unregister_restart_handler(&pctrl->restart_nb);
+	unregister_syscore_ops(&msm_pinctrl_pm_ops);
 
 	return 0;
 }

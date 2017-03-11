@@ -89,7 +89,9 @@ static char* asus_get_emmc_status(struct mmc_card *card)
 		if (card->cid.manfid == emmc_vendor_tbl[i].manfid) {
 			memset(whole_name, 0, sizeof(whole_name));
 			strcpy(whole_name, emmc_vendor_tbl[i].band_type);
-			if (7 == card->ext_csd.rev)
+			if (8 == card->ext_csd.rev)
+				strcat(whole_name, "-v5.1-");
+			else if (7 == card->ext_csd.rev)
 				strcat(whole_name, "-v5.0-");
 			else if (6 == card->ext_csd.rev)
 				strcat(whole_name, "-v4.5-");
@@ -959,6 +961,7 @@ MMC_DEV_ATTR(emmc_fw_version, "0x%02x%02x%02x%02x%02x%02x%02x%02x\n", card->ext_
 MMC_DEV_ATTR(emmc_health, "%s\n", asus_get_emmc_health(card));
 MMC_DEV_ATTR(emmc_health_A, "0x%02x\n", card->ext_csd.device_life_time[0]);
 MMC_DEV_ATTR(emmc_health_B, "0x%02x\n", card->ext_csd.device_life_time[1]);
+MMC_DEV_ATTR(emmc_preEOL, "0x%02x\n", card->ext_csd.pre_eol_info);
 //ASUS_BSP Deeo : add for DEVICE_LIFE_TIME_EST_TYP of eMMC ---
 //ASUS_BSP +++ Deeo "add eMMC total size for AMAX"
 MMC_DEV_ATTR(emmc_total_size, "%s\n", asus_get_emmc_total_size(card));
@@ -992,6 +995,7 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_emmc_health.attr,
 	&dev_attr_emmc_health_A.attr,
 	&dev_attr_emmc_health_B.attr,
+	&dev_attr_emmc_preEOL.attr,
 //ASUS_BSP Deeo : add for DEVICE_LIFE_TIME_EST_TYP of eMMC ---
 //ASUS_BSP +++ Deeo "add eMMC total size for AMAX"
 	&dev_attr_emmc_total_size.attr,

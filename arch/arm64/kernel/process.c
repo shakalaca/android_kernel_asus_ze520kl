@@ -268,45 +268,6 @@ void show_regs(struct pt_regs * regs)
 	__show_regs(regs);
 }
 
-void __show_regs_ipi_stop(struct pt_regs *regs)
-{
-	int top_reg;
-	u64 lr, sp;
-
-	if (compat_user_mode(regs)) {
-		lr = regs->compat_lr;
-		sp = regs->compat_sp;
-		top_reg = 12;
-	} else {
-		lr = regs->regs[30];
-		sp = regs->sp;
-		top_reg = 29;
-	}
-
-	show_regs_print_info(KERN_DEFAULT);
-	print_symbol("PC is at %s\n", instruction_pointer(regs));
-	print_symbol("LR is at %s\n", lr);
-	printk("pc : [<%016llx>] lr : [<%016llx>] pstate: %08llx\n",
-	       regs->pc, lr, regs->pstate);
-	printk("sp : %016llx\n", sp);
-	//for (i = top_reg; i >= 0; i--) {
-	//	printk("x%-2d: %016llx ", i, regs->regs[i]);
-	//	if (i % 2 == 0)
-	//		printk("\n");
-	//}
-	//if (!user_mode(regs))
-	if (0)
-		show_extra_register_data(regs, 256);
-	printk("\n");
-}
-
-void show_regs_ipi_stop(struct pt_regs * regs)
-{
-	printk("\n");
-	__show_regs_ipi_stop(regs);
-}
-
-
 /*
  * Free current thread data structures etc..
  */

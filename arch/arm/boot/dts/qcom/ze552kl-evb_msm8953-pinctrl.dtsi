@@ -289,12 +289,12 @@
 		cam_sensor_front1_default: cam_sensor_front1_default {
 			/* RESET, STANDBY */
 			mux {
-				pins = /*"gpio129", */"gpio130";
+				pins = "gpio129", "gpio130";
 				function = "gpio";
 			};
 
 			config {
-				pins = /*"gpio129", */"gpio130";
+				pins = "gpio129", "gpio130";
 				bias-disable; /* No PULL */
 				drive-strength = <2>; /* 2 MA */
 			};
@@ -303,12 +303,12 @@
 		cam_sensor_front1_sleep: cam_sensor_front1_sleep {
 			/* RESET, STANDBY */
 			mux {
-				pins = /*"gpio129", */"gpio130";
+				pins = "gpio129", "gpio130";
 				function = "gpio";
 			};
 
 			config {
-				pins = /*"gpio129", */"gpio130";
+				pins = "gpio129", "gpio130";
 				bias-disable; /* No PULL */
 				drive-strength = <2>; /* 2 MA */
 			};
@@ -388,7 +388,8 @@
 		/* ASUS_BSP --- ShawnHuang AP3045 */
 
 		/* ASUS_BSP +++ ShawnHuang YB8254 */
-/*		hall_int_pin {
+		/*
+		hall_int_pin {
 			qcom,pins = <&gp 107>;
 			qcom,pin-func = <0>;
 			qcom,num-grp-pins = <1>;

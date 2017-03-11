@@ -1352,6 +1352,8 @@ void msm_isp_axi_cfg_update(struct vfe_device *vfe_dev,
 		}
 		num_stream++;
 		stream_info = &axi_data->stream_info[i];
+		if (stream_info->state == INACTIVE)
+			continue;
 		if ((stream_info->stream_type == BURST_STREAM &&
 			!stream_info->controllable_output) ||
 			stream_info->state == AVAILABLE)
@@ -2468,8 +2470,7 @@ static int msm_isp_start_axi_stream(struct vfe_device *vfe_dev,
 	struct msm_vfe_axi_shared_data *axi_data = &vfe_dev->axi_data;
 	uint32_t src_mask = 0;
 	unsigned long flags;
-	vfe_dev->ignore_irq =0;//ASUS_BSP ZZ++ Fix vfe error
-
+         vfe_dev->ignore_irq =0;//ASUS_BSP ZZ++ Fix vfe error
 	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM)
 		return -EINVAL;
 
@@ -2600,8 +2601,7 @@ static int msm_isp_stop_axi_stream(struct vfe_device *vfe_dev,
 	uint32_t src_mask = 0, intf, bufq_id = 0, bufq_handle = 0;
 	unsigned long flags;
 	struct msm_isp_timestamp timestamp;
-	struct dual_vfe_resource *dual_vfe_res = NULL;//ASUS_BSP ZZ++ Fix vfe error
-
+         struct dual_vfe_resource *dual_vfe_res = NULL;//ASUS_BSP ZZ++ Fix vfe error
 	if (stream_cfg_cmd->num_streams > MAX_NUM_STREAM ||
 		stream_cfg_cmd->num_streams == 0)
 		return -EINVAL;

@@ -230,7 +230,7 @@ void mhall_sensor_probe(struct platform_device *pdev)
                	g_hall_data->status = false;
 		hallsensor_report_lid(HALLSENSOR_REPORT_LID_CLOSE);
         }
-	
+	log("report value = %s\n", g_hall_data->status?"open":"close");
 	log("Driver PROBE ---\n");
 	return;
 probe_err:

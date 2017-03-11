@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -106,6 +106,7 @@ static void *smd_pkt_ilctxt;
 static int msm_smd_pkt_debug_mask;
 module_param_named(debug_mask, msm_smd_pkt_debug_mask,
 		int, S_IRUGO | S_IWUSR | S_IWGRP);
+extern int modem_resume_irq_flag_function(void);/*ASUS-BBSP Log Modem Wake Up Info+*/
 
 enum {
 	SMD_PKT_STATUS = 1U << 0,
@@ -349,6 +350,7 @@ static long smd_pkt_ioctl(struct file *file, unsigned int cmd,
 {
 	int ret;
 	struct smd_pkt_dev *smd_pkt_devp;
+	uint32_t val;
 
 	smd_pkt_devp = file->private_data;
 	if (!smd_pkt_devp)
@@ -362,9 +364,15 @@ static long smd_pkt_ioctl(struct file *file, unsigned int cmd,
 		ret = smd_tiocmget(smd_pkt_devp->ch);
 		break;
 	case TIOCMSET:
-		D_STATUS("%s TIOCSET command on smd_pkt_dev id:%d\n",
-			 __func__, smd_pkt_devp->i);
-		ret = smd_tiocmset(smd_pkt_devp->ch, arg, ~arg);
+		ret = get_user(val, (uint32_t *)arg);
+		if (ret) {
+			pr_err("Error getting TIOCMSET value\n");
+			mutex_unlock(&smd_pkt_devp->ch_lock);
+			return ret;
+		}
+		D_STATUS("%s TIOCSET command on smd_pkt_dev id:%d arg[0x%x]\n",
+			 __func__, smd_pkt_devp->i, val);
+		ret = smd_tiocmset(smd_pkt_devp->ch, val, ~val);
 		break;
 	case SMD_PKT_IOCTL_BLOCKING_WRITE:
 		ret = get_user(smd_pkt_devp->blocking_write, (int *)arg);
@@ -519,6 +527,13 @@ wait_for_packet:
 	}
 	spin_unlock_irqrestore(&smd_pkt_devp->pa_spinlock, flags);
 	mutex_unlock(&smd_pkt_devp->ch_lock);
+
+        /*ASUS-BBSP Log Modem Wake Up Info+++*/
+        if (modem_resume_irq_flag_function()) {
+            u8 *buff = (u8 *)buf;
+            pr_info("[WakeUpInfo-SMDPKT]svc=0x%x, type=%d, msg=0x%x\n", buff[4], buff[6], buff[9]);
+        }
+        /*ASUS-BBSP Log Modem Wake Up Info---*/
 
 	r = copy_to_user(_buf, buf, bytes_read);
 	if (r) {
@@ -1061,6 +1076,7 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 {
 	int r = 0;
 	struct smd_pkt_dev *smd_pkt_devp = file->private_data;
+	unsigned long flags;
 
 	if (!smd_pkt_devp) {
 		pr_err_ratelimited("%s on a NULL device\n", __func__);
@@ -1086,7 +1102,12 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 			subsystem_put(smd_pkt_devp->pil);
 		smd_pkt_devp->has_reset = 0;
 		smd_pkt_devp->do_reset_notification = 0;
-		smd_pkt_devp->ws_locked = 0;
+		spin_lock_irqsave(&smd_pkt_devp->pa_spinlock, flags);
+		if (smd_pkt_devp->ws_locked) {
+			__pm_relax(&smd_pkt_devp->pa_ws);
+			smd_pkt_devp->ws_locked = 0;
+		}
+		spin_unlock_irqrestore(&smd_pkt_devp->pa_spinlock, flags);
 	}
 	mutex_unlock(&smd_pkt_devp->tx_lock);
 	mutex_unlock(&smd_pkt_devp->rx_lock);

@@ -25,7 +25,7 @@
 		qcom,saw2-spm-ctl = <0xe>;
 		qcom,cpu-vctl-list = <&CPU0 &CPU1 &CPU2 &CPU3
 				&CPU4 &CPU5 &CPU6 &CPU7>;
-		qcom,vctl-timeout-us = <50>;
+		qcom,vctl-timeout-us = <500>;
 		qcom,vctl-port = <0x0>;
 		qcom,phase-port = <0x1>;
 		qcom,pfm-port = <0x2>;
@@ -36,6 +36,18 @@
 		qcom,use-psci;
 		#address-cells = <1>;
 		#size-cells = <0>;
+		clock-names = "l2_clk", "cpu0_clk", "cpu1_clk",
+				"cpu2_clk", "cpu3_clk", "cpu4_clk",
+				"cpu5_clk", "cpu6_clk", "cpu7_clk";
+		clocks = <&clock_cpu clk_cci_clk>,
+			 <&clock_cpu clk_a53_bc_clk>,
+			 <&clock_cpu clk_a53_bc_clk>,
+			 <&clock_cpu clk_a53_bc_clk>,
+			 <&clock_cpu clk_a53_bc_clk>,
+			 <&clock_cpu clk_a53_lc_clk>,
+			 <&clock_cpu clk_a53_lc_clk>,
+			 <&clock_cpu clk_a53_lc_clk>,
+			 <&clock_cpu clk_a53_lc_clk>;
 
 		qcom,pm-cluster@0 {
 			reg = <0>;

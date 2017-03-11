@@ -239,8 +239,18 @@ void gether_qc_get_macs(u8 dev_mac[ETH_ALEN], u8 host_mac[ETH_ALEN])
 {
 	if (get_qc_ether_addr(qc_dev_addr, dev_mac))
 		pr_debug("using random dev_mac ethernet address\n");
-	if (get_qc_ether_addr(qc_host_addr, host_mac))
+
+	// ASUS_BSP Fix rndis host MAC if already exist
+	if (host_mac && is_valid_ether_addr(host_mac)){
+		pr_debug("using fixed host_mac ethernet address\n");
+	} else if(get_qc_ether_addr(qc_host_addr, host_mac)) {
 		pr_debug("using random host_mac ethernet address\n");
+	}
+
+	pr_debug("%s: Device_mac ethernet address: %02X:%02X:%02X:%02X:%02X:%02X\n", __func__,
+		dev_mac[0], dev_mac[1], dev_mac[2],dev_mac[3], dev_mac[4], dev_mac[5]);
+	pr_debug("%s: Host_mac ethernet address: %02X:%02X:%02X:%02X:%02X:%02X\n", __func__,
+		host_mac[0], host_mac[1], host_mac[2],host_mac[3], host_mac[4], host_mac[5]);
 }
 
 /**

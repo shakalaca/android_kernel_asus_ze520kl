@@ -589,6 +589,8 @@ static int rpm_stats_suspend(struct device *dev)
 	return 0;
 }
 
+u32  this_count = 0;
+EXPORT_SYMBOL(this_count);
 static int rpm_stats_resume(struct device *dev)
 {
 	void __iomem *reg =0;
@@ -640,6 +642,7 @@ static int rpm_stats_resume(struct device *dev)
 				time_since_last_mode, actual_last_sleep);
 		}
 		else {
+			this_count = data.count;
 			printk("[RPM] Resume: Mode:%s, Count:%d, In last mode(ms):%llu, Since last mode(s):%llu, Actual  last sleep(ms):%llu\n",
 				stat_type, data.count, time_in_last_mode,
 				time_since_last_mode, actual_last_sleep);

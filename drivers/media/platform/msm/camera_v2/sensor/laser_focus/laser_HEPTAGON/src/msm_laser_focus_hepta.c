@@ -38,14 +38,11 @@ Range2 recently no special purpose
 */
 
 #define HEPT_DMAX	400
-int ErrCode1 = 0;
-int ErrCode2 = 0;
-uint16_t Range1 =0;
-uint16_t Range2 =0;
+int ErrCode1 = RANGE_ERR_NOT_ADAPT;
+int ErrCode2 = RANGE_ERR_NOT_ADAPT;
+uint16_t Range1 =OUT_OF_RANGE;
+uint16_t Range2 =OUT_OF_RANGE;
 
-/*
-continuous measuring mode, make sure ioctrl_close base on timedMeasure is true
-*/
 extern int g_ftm_mode;
 extern int g_factory;
 
@@ -53,13 +50,19 @@ extern int Laser_log_cnt;
 int proc_log_cnt=0;
 
 extern bool timedMeasure;
-bool ioctrl_close = true;
+int LaserState = STOP_STATE;
+
 bool close_done = false;
+bool close_fuse = false;
+
 struct delayed_work		keepMeasure;
 struct workqueue_struct*	Measure_wq;
 struct work_struct			Measure_wk;
+struct work_struct			Open_wk;
 
 bool repairing_state = false;
+bool ranging_stop = false;
+
 
 struct msm_laser_focus_ctrl_t *laura_t;
 
@@ -78,7 +81,7 @@ static bool load_calibration_data = false;
 
 static int i2c_status=0;
 
-static int client=0;
+int client=0;
 
 extern int Laser_Product;
 extern int FirmWare;
@@ -147,35 +150,58 @@ void HPTG_DataInit(void){
 
 }
 
-void keep_measure_work(struct work_struct *work){
+int IoctlClosingLaser(void);
+
+
+void TimedMeasureRunningLoop(void){
 
 	int status=0;
+	
+	do{
+		status = Laser_measurement_interface(laura_t, load_calibration_data, &calibration_flag);   
+		if(status<0){
+			LOG_Handler(LOG_ERR,"%s: repair\n",__func__);
+			dev_cci_deinit(laura_t);
+			dev_cci_init(laura_t);
+			Laser_power_up_init_interface(laura_t, DO_CAL, &calibration_flag);
+		}
+		
+	}while(status<0);
+}
 
+void SingleMeasureRunningLoop(void){
+
+	int status=0;
+	
+	do{
+		if(repairing_state){
+			LOG_Handler(LOG_ERR,"%s: repair\n",__func__);
+			dev_cci_deinit(laura_t);
+			dev_cci_init(laura_t);
+			Laser_power_up_init_interface(laura_t, DO_CAL, &calibration_flag);
+		}
+		status = Laser_measurement_interface(laura_t, load_calibration_data, &calibration_flag);   
+	}while(status<0);
+
+}
+
+
+void keep_measure_work(struct work_struct *work){
+
+	/*
+	[ranging_stop]
+	ranging_stop=false may be confusing here:
+	It resets ranging state which avoid user doesnt resume ranging_stop.
+	*/
+		
 	if(timedMeasure){	
-		do{
-			status = Laser_measurement_interface(laura_t, load_calibration_data, &calibration_flag);   
-			if(status<0){
-				printk("keep: repair\n");
-				dev_cci_deinit(laura_t);
-				dev_cci_init(laura_t);
-				Laser_power_up_init_interface(laura_t, DO_CAL, &calibration_flag);
-			}
-			
-		}while(status<0);
-
-		if(ioctrl_close)
-			close_done = true;
+		TimedMeasureRunningLoop();
+		ranging_stop = false;
+		close_done = true;
+		
 	}
 	else{
-		do{
-			if(repairing_state){
-				printk("single: repair\n");
-				dev_cci_deinit(laura_t);
-				dev_cci_init(laura_t);
-				Laser_power_up_init_interface(laura_t, DO_CAL, &calibration_flag);
-			}
-			status = Laser_measurement_interface(laura_t, load_calibration_data, &calibration_flag);   
-		}while(status<0);
+		SingleMeasureRunningLoop();
 	}
 }
 
@@ -183,7 +209,7 @@ int WaitWorkCloseDone(void){
 
 	int cnt=0;
 			
-	ioctrl_close =true;
+	
 	while(1){				
 		if(close_done){
 			LOG_Handler(LOG_CDBG,"keep_measure_work reply close done\n");
@@ -204,6 +230,20 @@ int WaitWorkCloseDone(void){
 	return 0;
 }
 
+void ProcTimedMeasureStart(void){
+
+	LaserState = RUNNING_STATE;
+	
+	if(timedMeasure){
+		ranging_stop = false;	//for safety
+	
+		LOG_Handler(LOG_CDBG,"kick off read interface for keep-measurement mode\n");		
+		queue_work(Measure_wq, &Measure_wk);
+	}
+
+}
+
+
 int Laser_Disable(enum msm_laser_focus_atd_device_trun_on_type val){
 
 		int rc=0;
@@ -214,9 +254,7 @@ int Laser_Disable(enum msm_laser_focus_atd_device_trun_on_type val){
 		laura_t->device_state = val;
 		load_calibration_data=false;
 
-		ErrCode1 = RANGE_ERR_NOT_ADAPT;
-		Range1 = OUT_OF_RANGE;		
-		timedMeasure = true;
+
 		
 		rc = dev_cci_deinit(laura_t);
 		if (rc < 0)
@@ -251,13 +289,6 @@ int Laser_Enable(enum msm_laser_focus_atd_device_trun_on_type val){
 		laura_t->device_state = val;
 		load_calibration_data = (val == MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION?true:false);	
 		LOG_Handler(LOG_CDBG, "%s Init Device (%d)\n", __func__, laura_t->device_state);
-
-		if(timedMeasure){
-			ioctrl_close =false;
-			LOG_Handler(LOG_CDBG,"kick off read interface for keep-measurement mode\n");		
-			//schedule_delayed_work(&keepMeasure, 0);
-			queue_work(Measure_wq, &Measure_wk);
-		}
 
 		return rc;	
 }
@@ -319,6 +350,103 @@ void HPTG_Customize(void){
 }
 
 
+int IoctlClosingLaser(){
+	int rc = 0, cnt = 0;
+		
+	rc = Laser_Disable(MSM_LASER_FOCUS_DEVICE_OFF);
+	while(rc < 0 && (cnt++ < 3)){
+		dev_cci_init(laura_t);
+		rc = Laser_Disable(MSM_LASER_FOCUS_DEVICE_OFF);
+		LOG_Handler(LOG_ERR,"%s: retry laser deinit, rc(%d), retry(%d)\n", __func__, rc, cnt);	
+	}
+	if(rc < 0)
+		LOG_Handler(LOG_ERR,"%s: retry release fail\n", __func__);			
+
+	PowerDown(laura_t);
+	LaserState = STOP_STATE;	
+	
+	return 0;
+}
+
+int IoctlOpeningLaser(void){
+
+	int rc = 0, cnt = 0;
+	
+	//[It occurs at release immedediately following open]
+	if(client<=0){
+		ErrCode1 = RANGE_ERR_NOT_ADAPT;
+		Range1 = OUT_OF_RANGE;				
+		LOG_Handler(LOG_CDBG,"Closing Laser is commanded before opening Laser\n");
+		return -1;
+	}
+
+	LaserState = OPENING_STATE;
+	timedMeasure = true; //for safety
+	HPTG_DataInit();
+	HPTG_Customize();
+
+	
+	PowerUp(laura_t);
+	if(chipID == CHIP_ID_PREVIOUS)
+		rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_NO_APPLY_CALIBRATION);
+	else
+		rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION);			
+
+	while(rc < 0 && (cnt++ < 3)){
+		dev_cci_deinit(laura_t);
+		rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION);
+		LOG_Handler(LOG_ERR,"%s: retry laser enable, rc(%d), retry(%d)\n", __func__, rc, cnt);	
+	}
+	
+	if(rc < 0){
+		client--;
+		PowerDown(laura_t);
+		LOG_Handler(LOG_ERR,"%s: retry open fail, client(%d)\n", __func__, client);	
+		LaserState = STOP_STATE;
+	}
+	else
+		LaserState = RUNNING_STATE;
+
+	return rc;
+
+}
+
+
+void IoctlRunningLaser(void){
+		
+	if(timedMeasure){	
+		TimedMeasureRunningLoop();
+			
+		mutex_ctrl(laura_t, MUTEX_LOCK);
+		ranging_stop = false;
+		close_done = true;
+		IoctlClosingLaser();
+		mutex_ctrl(laura_t, MUTEX_UNLOCK);
+		
+	}
+	else
+		SingleMeasureRunningLoop();
+
+}
+
+
+void misc_open_work(struct work_struct *work){
+
+	int rc = 0;
+	
+	mutex_ctrl(laura_t, MUTEX_LOCK);
+	rc = IoctlOpeningLaser();
+	mutex_ctrl(laura_t, MUTEX_UNLOCK);
+	
+	if(rc ==0){	
+		ranging_stop = false;	//for safety
+		LOG_Handler(LOG_CDBG,"kick off read interface for keep-measurement mode\n");		
+		IoctlRunningLaser();
+	}
+	else;
+	
+}
+	
 static ssize_t ATD_Laser_enable_write(struct file *filp, const char __user *buff, size_t len, loff_t *data)
 {
 	int val, rc = 0;
@@ -342,16 +470,18 @@ static ssize_t ATD_Laser_enable_write(struct file *filp, const char __user *buff
 	switch (val) {
 		case MSM_LASER_FOCUS_DEVICE_OFF:
 			LOG_Handler(LOG_CDBG,"%s: client leave via proc\n", __func__);
-		
+
+			client=0;
 			rc = Laser_Disable(val);
 			PowerDown(laura_t);
 			if (rc < 0)
 				goto DEVICE_SWITCH_ERROR;			
-			
+			LaserState = STOP_STATE;			
 			break;
 			
 		case MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION:
 		case MSM_LASER_FOCUS_DEVICE_NO_APPLY_CALIBRATION:
+			client=1;
 			HPTG_DataInit();
 			HPTG_Customize();
 			LOG_Handler(LOG_CDBG,"%s: client enter via proc, type (%d)\n", __func__, val);
@@ -364,6 +494,7 @@ static ssize_t ATD_Laser_enable_write(struct file *filp, const char __user *buff
 			rc = Laser_Enable(val);
 			if (rc < 0)
 				goto DEVICE_SWITCH_ERROR;
+			ProcTimedMeasureStart();
 			break;
 		default:
 			LOG_Handler(LOG_ERR, "%s: command invalid\n", __func__);
@@ -782,62 +913,35 @@ int Olivia_get_measurement(int* distance){
 
 static int Olivia_misc_open(struct inode *inode, struct file *file){
 
-	int rc = 0, cnt = 0;
-
+	/*
+	OPENING_STATE is a transition state and protected by lock, so we omit && !=OPENING_STATE
+	client==1 and LaserState==RUNNING_STATE tells that we need not queue an open_work
+	*/
 	mutex_ctrl(laura_t, MUTEX_LOCK);
-	timedMeasure = true; //for safety
-	HPTG_DataInit();
-	HPTG_Customize();
+	
 	client++;
 	LOG_Handler(LOG_CDBG,"%s: client enter via ioctrl(%d)\n", __func__, client);
 
-	if(client == 1){
-		PowerUp(laura_t);
-		if(chipID == CHIP_ID_PREVIOUS)
-			rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_NO_APPLY_CALIBRATION);
-		else
-			rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION);			
-	}
-	while(rc < 0 && (cnt++ < 3)){
-		dev_cci_deinit(laura_t);
-		rc = Laser_Enable(MSM_LASER_FOCUS_DEVICE_APPLY_CALIBRATION);
-		LOG_Handler(LOG_ERR,"%s: retry laser enable, rc(%d), retry(%d)\n", __func__, rc, cnt);	
-	}
-	if(rc < 0){
-		client--;
-		LOG_Handler(LOG_ERR,"%s: retry open fail, client(%d)\n", __func__, client);			
-	}
+	if(client == 1 && LaserState != RUNNING_STATE)
+		queue_work(Measure_wq, &Open_wk);
+
 	mutex_ctrl(laura_t, MUTEX_UNLOCK);
-	
 	return 0;
 }
 
 static int Olivia_misc_release(struct inode *inode, struct file *file)
 {
-	int rc = 0, cnt = 0;
 	mutex_ctrl(laura_t, MUTEX_LOCK);
 	
 	client--;
 	LOG_Handler(LOG_CDBG,"%s: client leave via ioctrl(%d)\n", __func__, client);
-	
-	if(client ==0){
-		rc = Laser_Disable(MSM_LASER_FOCUS_DEVICE_OFF);
-		while(rc < 0 && (cnt++ < 3)){
-			dev_cci_init(laura_t);
-			rc = Laser_Disable(MSM_LASER_FOCUS_DEVICE_OFF);
-			LOG_Handler(LOG_ERR,"%s: retry laser deinit, rc(%d), retry(%d)\n", __func__, rc, cnt);	
-		}
-		if(rc < 0)
-			LOG_Handler(LOG_ERR,"%s: retry release fail\n", __func__);			
 
-		PowerDown(laura_t);
-	}
-	else if(client < 0){
+	if(client < 0){
 		client =0;
 		LOG_Handler(LOG_CDBG,"%s: dummy leave, reset client to %d\n", __func__, client);
 	}
-	
-	mutex_ctrl(laura_t, MUTEX_UNLOCK);
+
+	mutex_ctrl(laura_t, MUTEX_UNLOCK);	
 	return 0;
 }
 
@@ -1068,6 +1172,7 @@ static int32_t Olivia_platform_probe(struct platform_device *pdev)
 	Measure_wq = create_singlethread_workqueue("Laser_wq");
 	
 	INIT_WORK(&Measure_wk, keep_measure_work);
+	INIT_WORK(&Open_wk, misc_open_work);
 	
 	g_factory = g_ftm_mode; 
 	if(g_factory){

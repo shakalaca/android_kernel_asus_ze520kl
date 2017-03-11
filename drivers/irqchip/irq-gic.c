@@ -289,6 +289,20 @@ EXPORT_SYMBOL(wcnss_irq_flag_function_wdi);
 
 //ASUS_BSP--- "for wlan wakeup trace"
 
+/*ASUS-BBSP Log Modem Wake Up Info+++*/
+#define MODEM_IRQ_VALUE 57
+static int modem_resume_irq_flag = 0;
+int modem_resume_irq_flag_function(void)
+{
+    if( modem_resume_irq_flag == 1 ) {
+        modem_resume_irq_flag = 0;
+        return 1;
+    }
+    return 0;
+    }
+EXPORT_SYMBOL(modem_resume_irq_flag_function);
+/*ASUS-BBSP Log Modem Wake Up Info---*/
+
 //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
 static int rmnet_irq_flag_rx = 0;
 int rmnet_irq_flag_function_rx(void)
@@ -342,7 +356,9 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	for (i = find_first_bit((unsigned long *)pending, gic->gic_irqs);
 	i < gic->gic_irqs;
 	i = find_next_bit((unsigned long *)pending, gic->gic_irqs, i+1)) {
-		struct irq_desc *desc = irq_to_desc(i + gic->irq_offset);
+		unsigned int irq = irq_find_mapping(gic->domain,
+						i + gic->irq_offset);
+		struct irq_desc *desc = irq_to_desc(irq);
 		const char *name = "null";
 
 		if (desc == NULL)
@@ -368,6 +384,12 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		    wcnss_irq_flag_wdi = 1;
 		}
 		//ASUS_BSP--- "for wlan wakeup trace"
+
+                /*ASUS-BBSP Log Modem Wake Up Info+++*/
+                if( (i + gic->irq_offset) == MODEM_IRQ_VALUE ) {
+                    modem_resume_irq_flag = 1;
+                }
+                /*ASUS-BBSP Log Modem Wake Up Info---*/
 
                 //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
                 if( (i + gic->irq_offset) == 57 ){

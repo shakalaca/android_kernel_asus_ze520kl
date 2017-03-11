@@ -722,8 +722,30 @@ error:
 	return rc;
 }
 
+bool is_dsi_clk_in_ecg_state(void *client)
+{
+	struct mdss_dsi_clk_client_info *c = client;
+	struct mdss_dsi_clk_mngr *mngr;
+	bool is_ecg = false;
+
+
+	if (!client) {
+		pr_err("Invalid client params\n");
+		goto end;
+	}
+
+	mngr = c->mngr;
+
+	mutex_lock(&mngr->clk_mutex);
+	is_ecg = (c->core_clk_state == MDSS_DSI_CLK_EARLY_GATE);
+	mutex_unlock(&mngr->clk_mutex);
+
+end:
+	return is_ecg;
+}
+
 int mdss_dsi_clk_req_state(void *client, enum mdss_dsi_clk_type clk,
-			   enum mdss_dsi_clk_state state)
+	enum mdss_dsi_clk_state state, u32 index)
 {
 	int rc = 0;
 	struct mdss_dsi_clk_client_info *c = client;
@@ -732,7 +754,7 @@ int mdss_dsi_clk_req_state(void *client, enum mdss_dsi_clk_type clk,
 
 	if (!client || !clk || clk > (MDSS_DSI_CORE_CLK | MDSS_DSI_LINK_CLK) ||
 	    state > MDSS_DSI_CLK_EARLY_GATE) {
-		pr_err("Invalid params, client = %p, clk = 0x%x, state = %d\n",
+		pr_err("Invalid params, client = %pK, clk = 0x%x, state = %d\n",
 		       client, clk, state);
 		return -EINVAL;
 	}
@@ -744,7 +766,7 @@ int mdss_dsi_clk_req_state(void *client, enum mdss_dsi_clk_type clk,
 	       c->name, mngr->name, clk, state, c->core_clk_state,
 	       c->link_clk_state);
 
-	MDSS_XLOG(clk, state, c->core_clk_state, c->link_clk_state);
+	MDSS_XLOG(index, clk, state, c->core_clk_state, c->link_clk_state);
 	/*
 	 * Refcount handling rules:
 	 *	1. Increment refcount whenever ON is called
@@ -810,7 +832,7 @@ int mdss_dsi_clk_req_state(void *client, enum mdss_dsi_clk_type clk,
 	pr_debug("[%s]%s: change=%d, Core (ref=%d, state=%d), Link (ref=%d, state=%d)\n",
 		 c->name, mngr->name, changed, c->core_refcount,
 		 c->core_clk_state, c->link_refcount, c->link_clk_state);
-	MDSS_XLOG(clk, state, c->core_clk_state, c->link_clk_state);
+	MDSS_XLOG(index, clk, state, c->core_clk_state, c->link_clk_state);
 
 	if (changed) {
 		rc = dsi_recheck_clk_state(mngr);
@@ -830,7 +852,7 @@ int mdss_dsi_clk_set_link_rate(void *client, enum mdss_dsi_link_clk_type clk,
 	struct mdss_dsi_clk_mngr *mngr;
 
 	if (!client || (clk > MDSS_DSI_LINK_CLK_MAX)) {
-		pr_err("Invalid params, client = %p, clk = 0x%x", client, clk);
+		pr_err("Invalid params, client = %pK, clk = 0x%x", client, clk);
 		return -EINVAL;
 	}
 
@@ -929,7 +951,7 @@ int mdss_dsi_clk_force_toggle(void *client, u32 clk)
 	struct mdss_dsi_clk_mngr *mngr;
 
 	if (!client || !clk || clk >= MDSS_DSI_CLKS_MAX) {
-		pr_err("Invalid params, client = %p, clk = 0x%x\n",
+		pr_err("Invalid params, client = %pK, clk = 0x%x\n",
 		       client, clk);
 		return -EINVAL;
 	}

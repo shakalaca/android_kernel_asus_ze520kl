@@ -71,7 +71,6 @@ static int try_to_freeze_tasks(bool user_only)
 #ifdef CONFIG_PM_SLEEP
 			pm_get_active_wakeup_sources(suspend_abort,
 				MAX_SUSPEND_ABORT_LEN);
-			printk("[PM] call log_suspend_abort_reason()\n");
 			log_suspend_abort_reason(suspend_abort);
 #endif
 			wakeup = true;
@@ -94,13 +93,12 @@ static int try_to_freeze_tasks(bool user_only)
 	elapsed_msecs = elapsed_msecs64;
 
 	if (wakeup) {
-		printk("[PM] try_to_freeze_tasks():wakeup = true\n");
-		printk("[PM] Freezing of tasks aborted after %d.%03d seconds\n",
+		printk("\n");
+		printk(KERN_ERR "Freezing of tasks aborted after %d.%03d seconds",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000);
 	} else if (todo) {
 		printk("\n");
-		printk("[PM] try_to_freeze_tasks():todo = %d\n", todo);
-		printk("[PM] Freezing of tasks failed after %d.%03d seconds"
+		printk(KERN_ERR "Freezing of tasks failed after %d.%03d seconds"
 		       " (%d tasks refusing to freeze, wq_busy=%d):\n",
 		       elapsed_msecs / 1000, elapsed_msecs % 1000,
 		       todo - wq_busy, wq_busy);
@@ -113,7 +111,7 @@ static int try_to_freeze_tasks(bool user_only)
 			}
 			read_unlock(&tasklist_lock);
 	} else {
-		printk("(elapsed %d.%03d seconds) \n", elapsed_msecs / 1000,
+		printk("(elapsed %d.%03d seconds) ", elapsed_msecs / 1000,
 			elapsed_msecs % 1000);
 	}
 
@@ -167,10 +165,9 @@ int freeze_processes(void)
 		atomic_inc(&system_freezing_cnt);
 
 	pm_wakeup_clear();
-	printk("[PM] freeze_processes():Freezing user space processes ... \n");
+	printk("Freezing user space processes ... ");
 	pm_freezing = true;
 	oom_kills_saved = oom_kills_count();
-	printk("[PM] call try_to_freeze_tasks(true)\n");
 	error = try_to_freeze_tasks(true);
 	if (!error) {
 		__usermodehelper_set_disable_depth(UMH_DISABLED);
@@ -187,7 +184,7 @@ int freeze_processes(void)
 			printk("OOM in progress.");
 			error = -EBUSY;
 		} else {
-			printk("[PM] try_to_freeze_tasks(true):done.\n");
+			printk("done.");
 		}
 	}
 	printk("\n");
@@ -210,12 +207,11 @@ int freeze_kernel_threads(void)
 {
 	int error;
 
-	printk("[PM] freeze_kernel_threads():Freezing remaining freezable tasks ... \n");
+	printk("Freezing remaining freezable tasks ... ");
 	pm_nosig_freezing = true;
-	printk("[PM] call try_to_freeze_tasks(false)\n");
 	error = try_to_freeze_tasks(false);
 	if (!error)
-		printk("[PM] try_to_freeze_tasks(false):done.\n");
+		printk("done.");
 
 	printk("\n");
 	BUG_ON(in_atomic());
@@ -257,7 +253,7 @@ void thaw_processes(void)
 	usermodehelper_enable();
 
 	schedule();
-	printk("[PM] thaw_processes():done.\n");
+	printk("done.\n");
 	trace_suspend_resume(TPS("thaw_processes"), 0, false);
 }
 

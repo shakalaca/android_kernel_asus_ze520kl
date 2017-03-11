@@ -4,7 +4,7 @@
 */
 #ifndef __AXI_I2C_STRESS_TEST_H__
 #define __AXI_I2C_STRESS_TEST_H__
-#include "i2c_testcase.h"
+#include <linux/i2c_testcase.h>
 #include <linux/list.h>
 #include <linux/workqueue.h>
 #include <linux/types.h>

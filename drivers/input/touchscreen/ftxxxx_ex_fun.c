@@ -903,32 +903,6 @@ static ssize_t switch_glove_mode_show(struct device *dev, struct device_attribut
 	return sprintf(buf, "%d \n", ftxxxx_ts->glove_mode_eable);
 }
 
-static ssize_t switch_keyboard_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int tmp = 0;
-
-	tmp = buf[0] - 48;
-
-	if (tmp == 0) {
-
-		focal_keyboard_switch(0);
-
-	} else if (tmp == 1) {
-
-		focal_keyboard_switch(1);
-
-	}
-
-	return count;
-
-}
-
-static ssize_t switch_keyboard_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-
-	return sprintf(buf, "%d \n", ftxxxx_ts->keyboard_mode_eable);
-}
-
 static ssize_t switch_cover_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	int tmp = 0;
@@ -3270,7 +3244,6 @@ static DEVICE_ATTR(update_progress, Focal_RW_ATTR, update_progress_show, NULL);
 static DEVICE_ATTR(set_reset_pin_level, Focal_RW_ATTR, set_reset_pin_level_show, set_reset_pin_level_store);
 static DEVICE_ATTR(glove_mode, Focal_RW_ATTR, switch_glove_mode_show, switch_glove_mode_store);
 static DEVICE_ATTR(cover_mode, Focal_RW_ATTR, switch_cover_mode_show, switch_cover_mode_store);
-static DEVICE_ATTR(keyboard_enable, Focal_RW_ATTR, switch_keyboard_mode_show, switch_keyboard_mode_store);
 static DEVICE_ATTR(dclick_mode, Focal_RW_ATTR, switch_dclick_mode_show, switch_dclick_mode_store);
 static DEVICE_ATTR(swipeup_mode, Focal_RW_ATTR, switch_swipeup_mode_show, switch_swipeup_mode_store);
 static DEVICE_ATTR(gesture_mode, Focal_RW_ATTR, switch_gesture_mode_show, switch_gesture_mode_store);
@@ -3318,7 +3291,6 @@ static struct attribute *ftxxxx_attributes[] = {
 	&dev_attr_update_progress.attr,
 	&dev_attr_set_reset_pin_level.attr,
 	&dev_attr_glove_mode.attr,
-	&dev_attr_keyboard_enable.attr,
 	&dev_attr_cover_mode.attr,
 	&dev_attr_gesture_mode.attr,
 	&dev_attr_HW_ID.attr,
@@ -3376,7 +3348,7 @@ int ftxxxx_remove_sysfs(struct i2c_client * client)
 	sysfs_remove_group(&client->dev.kobj, &ftxxxx_attribute_group);
 	return 0;
 }
-#define FTS_APK_DEBUG
+
 #ifdef FTS_APK_DEBUG
 /*create apk debug channel*/
 #define PROC_UPGRADE			0
@@ -3391,7 +3363,7 @@ int ftxxxx_remove_sysfs(struct i2c_client * client)
 static unsigned char proc_operate_mode = PROC_UPGRADE;
 static struct proc_dir_entry *ftxxxx_proc_entry;
 /*interface of write proc*/
-static ssize_t ftxxxx_debug_write(struct file *filp, const char __user *buff, size_t len, loff_t*data)
+static int ftxxxx_debug_write(struct file *filp, const char __user *buff, unsigned long len, void *data)
 {
 	struct i2c_client *client = (struct i2c_client *)ftxxxx_ts->client;
 	unsigned char writebuf[FTS_PACKET_LENGTH];
@@ -3460,17 +3432,17 @@ static ssize_t ftxxxx_debug_write(struct file *filp, const char __user *buff, si
 
 /*interface of read proc*/
 bool proc_read_status;
-static ssize_t ftxxxx_debug_read(struct file *filp, char __user *buff, size_t len, loff_t  *data)
+static ssize_t ftxxxx_debug_read(struct file *filp, char __user *buff, unsigned long len, void *data)
 {
 	struct i2c_client *client = (struct i2c_client *)ftxxxx_ts->client;
 	int ret = 0;
-	//unsigned char buf[PAGE_SIZE];
-	unsigned char *buf=NULL;
+	unsigned char buf[PAGE_SIZE];
+	/*unsigned char *buf=NULL;*/
 	ssize_t num_read_chars = 0;
 	int readlen = 0;
 	u8 regvalue = 0x00, regaddr = 0x00;
 
-	buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
+	/*buf = kmalloc(PAGE_SIZE, GFP_KERNEL);*/
 	switch (proc_operate_mode) {
 	case PROC_UPGRADE:
 		/*after calling ftxxxx_debug_write to upgrade*/
@@ -3504,9 +3476,9 @@ static ssize_t ftxxxx_debug_read(struct file *filp, char __user *buff, size_t le
 	default:
 		break;
 	}
-	//copy_to_user(buff, buf, num_read_chars);
-	memcpy(buff, buf, num_read_chars);
-	kfree(buf);
+	copy_to_user(buff, buf, num_read_chars);
+	/*memcpy(buff, buf, num_read_chars);*/
+	/*kfree(buf);*/
 	if (!proc_read_status) {
 		proc_read_status = 1;
 		return num_read_chars;
@@ -3518,18 +3490,11 @@ static ssize_t ftxxxx_debug_read(struct file *filp, char __user *buff, size_t le
 
 static const struct file_operations debug_flag_fops = {
 		.owner = THIS_MODULE,
-		.open = proc_chip_check_running_open,
+		/*.open = proc_chip_check_running_open,*/
 		.read = ftxxxx_debug_read,
 		.write = ftxxxx_debug_write,
 };
 
- int proc_chip_check_running_open(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-	printk("[touch] proc/debug \n");
-	return 0;
-}
- 
 int ftxxxx_create_apk_debug_channel(struct i2c_client * client)
 {
 	ftxxxx_proc_entry = proc_create(PROC_NAME, 0666, NULL, &debug_flag_fops);

@@ -66,7 +66,7 @@ int ftxxxx_remove_sysfs(struct i2c_client * client);
 
 int ftxxxx_create_apk_debug_channel(struct i2c_client *client);
 void ftxxxx_release_apk_debug_channel(void);
-int proc_chip_check_running_open(struct inode *inode, struct file *file);
+
 int fts_ctpm_fw_preupgrade_hwreset(struct i2c_client * client, u8* pbt_buf, u32 dw_lenth);
 int fts_ctpm_fw_preupgrade(struct i2c_client * client, u8* pbt_buf, u32 dw_lenth);
 int fts_ctpm_fw_upgrade(struct i2c_client * client, u8* pbt_buf, u32 dw_lenth);

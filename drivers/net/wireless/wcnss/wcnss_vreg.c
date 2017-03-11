@@ -22,10 +22,10 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/clk.h>
-
 //ASUS_BSP+++ "for /data/log/ASUSEvtlog"
 #include <linux/asusdebug.h>
 //ASUS_BSP--- "for /data/log/ASUSEvtlog"
+
 
 static void __iomem *msm_wcnss_base;
 static LIST_HEAD(power_on_lock_list);
@@ -643,7 +643,7 @@ int wcnss_wlan_power(struct device *dev,
 			//ASUS_BSP+++ "for /data/log/ASUSEvtlog"
 			ASUSEvtlog("[wcnss]: wcnss_core_vregs_on.\n");
 			//ASUS_BSP--- "for /data/log/ASUSEvtlog"
-       	}
+		}
 
 		/* IRIS regulator settings */
 		rc = wcnss_iris_vregs_on(dev, hw_type,
@@ -663,7 +663,7 @@ int wcnss_wlan_power(struct device *dev,
 			//ASUS_BSP+++ "for /data/log/ASUSEvtlog"
 			ASUSEvtlog("[wcnss]: wcnss_iris_vregs_on.\n");
 			//ASUS_BSP--- "for /data/log/ASUSEvtlog"
-        	}
+		}
 
 		/* Configure IRIS XO */
 		rc = configure_iris_xo(dev, cfg,
@@ -683,8 +683,7 @@ int wcnss_wlan_power(struct device *dev,
 			//ASUS_BSP+++ "for /data/log/ASUSEvtlog"
 			ASUSEvtlog("[wcnss]: configure_iris_xo WCNSS_WLAN_SWITCH_ON.\n");
 			//ASUS_BSP--- "for /data/log/ASUSEvtlog"
-        	}
-
+		}
 
 		is_power_on = true;
 

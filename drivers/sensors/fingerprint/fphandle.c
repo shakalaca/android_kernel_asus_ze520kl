@@ -976,6 +976,7 @@ int gf_irq_num(struct fp_device_data *gf_dev)
 
 static void gf_enable_irq(struct fp_device_data *gf_dev)
 {
+
 	if (gf_dev->irq_enabled) {
 		pr_warn("IRQ has been enabled.\n");
 	} else {
@@ -1140,6 +1141,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	unsigned int speed = 0;
 #endif
 	FUNC_ENTRY();
+
 	if (_IOC_TYPE(cmd) != GF_IOC_MAGIC)
 		return -ENODEV;
 

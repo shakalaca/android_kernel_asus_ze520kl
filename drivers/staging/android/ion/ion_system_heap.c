@@ -29,8 +29,8 @@
 #include "ion_priv.h"
 #include <linux/dma-mapping.h>
 #include <trace/events/kmem.h>
-#include <linux/proc_fs.h>
 #include <soc/qcom/secure_buffer.h>
+#include <linux/proc_fs.h>
 
 static gfp_t high_order_gfp_flags = (GFP_HIGHUSER | __GFP_NOWARN |
 				     __GFP_NO_KSWAPD | __GFP_NORETRY)

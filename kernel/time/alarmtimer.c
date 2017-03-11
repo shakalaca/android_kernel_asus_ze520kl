@@ -32,7 +32,7 @@
 #include <linux/workqueue.h>
 
 /* +++ ASUS_BSP Show Power on device earlier then user expiration */
-#define ALARM_DELTA 120
+//#define ALARM_DELTA 120
 /* --- ASUS_BSP Show Power on device earlier then user expiration */
 
 /**
@@ -152,11 +152,11 @@ void set_power_on_alarm(void)
 	alarm_time = alarm_secs - alarm_delta;
 	
 	/* +++ ASUS_BSP Show Power on device earlier then user expiration */
-	if((alarm_time - ALARM_DELTA) > rtc_secs){
+	/*if((alarm_time - ALARM_DELTA) > rtc_secs){
 		alarm_time -= ALARM_DELTA;
 	}else{
 		goto disable_alarm;
-	}
+	}*/
 	/* --- ASUS_BSP Show Power on device earlier then user expiration */
 
 	rtc_time_to_tm(alarm_time, &alarm.time);

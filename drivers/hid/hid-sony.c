@@ -52,7 +52,8 @@
 				DUALSHOCK4_CONTROLLER_BT)
 #define SONY_LED_SUPPORT (SIXAXIS_CONTROLLER | BUZZ_CONTROLLER |\
 				DUALSHOCK4_CONTROLLER)
-#define SONY_BATTERY_SUPPORT (SIXAXIS_CONTROLLER | DUALSHOCK4_CONTROLLER)
+//#define SONY_BATTERY_SUPPORT (SIXAXIS_CONTROLLER | DUALSHOCK4_CONTROLLER)
+#define SONY_BATTERY_SUPPORT 0
 #define SONY_FF_SUPPORT (SIXAXIS_CONTROLLER | DUALSHOCK4_CONTROLLER)
 
 #define MAX_LEDS 4
@@ -1112,12 +1113,15 @@ static int sony_input_configured(struct hid_device *hdev,
 	 */
 	if (sc->quirks & DUALSHOCK4_CONTROLLER) {
 		ret = sony_register_touchpad(hidinput, 2, 1920, 942);
-		if (ret != 0)
+		if (ret) {
 			hid_err(sc->hdev,
-				"Unable to initialize multi-touch slots\n");
+				"Unable to initialize multi-touch slots: %d\n",
+				ret);
+			return ret;
+		}
 	}
 
-	return ret;
+	return 0;
 }
 
 /*
@@ -2042,7 +2046,8 @@ static const struct hid_device_id sony_devices[] = {
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_SMK, USB_DEVICE_ID_SMK_PS3_BDREMOTE),
 		.driver_data = PS3REMOTE },
 	/* Sony Dualshock 4 controllers for PS4 */
-/*	{ HID_USB_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER),
+/*
+	{ HID_USB_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER),
 		.driver_data = DUALSHOCK4_CONTROLLER_USB },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER),
 		.driver_data = DUALSHOCK4_CONTROLLER_BT },

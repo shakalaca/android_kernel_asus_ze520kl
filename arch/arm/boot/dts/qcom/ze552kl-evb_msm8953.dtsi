@@ -40,13 +40,13 @@
 		modem_mem: modem_region@0 {
 			compatible = "removed-dma-pool";
 			no-map-fixup;
-			reg = <0x0 0x86c00000 0x0 0x5600000>;
+			reg = <0x0 0x86c00000 0x0 0x6a00000>;
 		};
 
 		reloc_mem: reloc_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0x8c200000 0x0 0x1800000>;
+			reg = <0x0 0x8d600000 0x0 0x1800000>;
 		};
 
 		venus_mem: venus_region@0 {
@@ -94,7 +94,7 @@
 			alignment = <0 0x400000>;
 			size = <0 0x800000>;
 		};
-
+		
 		asus_debug_mem: asus_debug_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
@@ -678,7 +678,7 @@
 		dmas = <&dma_blsp1 6 64 0x20000020 0x20>,
 			<&dma_blsp1 7 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
-};
+	};
 
 	i2c_3: i2c@78b7000 { /* BLSP1 QUP3 : Touch */
 		compatible = "qcom,i2c-msm-v2"; //Manufacturer model
@@ -694,6 +694,7 @@
 		clock-names = "iface_clk", "core_clk";
 		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
 			<&clock_gcc clk_gcc_blsp1_qup3_i2c_apps_clk>;
+
 		pinctrl-names = "i2c_active", "i2c_sleep";
 		pinctrl-0 = <&i2c_3_active>;
 		pinctrl-1 = <&i2c_3_sleep>;
@@ -1541,6 +1542,8 @@
 		qcom,use-sw-aes-xts-algo;
 		qcom,use-sw-aes-ccm-algo;
 		qcom,use-sw-ahash-algo;
+		qcom,use-sw-hmac-algo;
+		qcom,use-sw-aead-algo;
 		qcom,ce-opp-freq = <100000000>;
 	};
 
@@ -1829,6 +1832,8 @@
 		qcom,proxy-clock-names = "xo";
 		qcom,active-clock-names = "iface_clk", "bus_clk", "mem_clk";
 
+		qcom,pas-id = <5>;
+		qcom,pil-mss-memsetup;
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
 		qcom,sysmon-id = <0>;
@@ -2092,6 +2097,7 @@
 			"ref_clk_addr",
 			"tcsr_phy_clk_scheme_sel";
 
+		USB3_GDSC-supply = <&gdsc_usb30>;
 		vdd-supply = <&pm8953_l3>;
 		vdda18-supply = <&pm8953_l7>;
 		vdda33-supply = <&pm8953_l13>;
@@ -2113,10 +2119,12 @@
 		clocks = <&clock_gcc clk_bb_clk1>,
 			 <&clock_gcc clk_gcc_qusb_ref_clk>,
 			 <&clock_gcc clk_gcc_usb_phy_cfg_ahb_clk>,
-			 <&clock_gcc clk_gcc_qusb2_phy_reset>;
+			 <&clock_gcc clk_gcc_qusb2_phy_reset>,
+			 <&clock_gcc clk_gcc_pcnoc_usb3_axi_clk>,
+			 <&clock_gcc clk_gcc_usb30_master_clk>;
 
 		clock-names = "ref_clk_src", "ref_clk", "cfg_ahb_clk",
-			      "phy_reset";
+			      "phy_reset", "iface_clk", "core_clk";
 
 	};
 

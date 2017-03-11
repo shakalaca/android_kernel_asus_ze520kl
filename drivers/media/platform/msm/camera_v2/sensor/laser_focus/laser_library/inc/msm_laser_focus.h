@@ -71,6 +71,12 @@ enum msm_laser_focus_atd_device_trun_on_type {
 	MSM_LASER_FOCUS_DEVICE_NO_APPLY_CALIBRATION,	/* Device power but no apply calibration */
 };
 
+enum laser_state{
+	STOP_STATE =0,
+	OPENING_STATE,
+	RUNNING_STATE,
+	CLOSING_STATE,
+};
 enum laser_product_family{
 	PRODUCT_UNKNOWN,
 	PRODUCT_LAURA,

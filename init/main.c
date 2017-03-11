@@ -139,6 +139,23 @@ static char *ramdisk_execute_command;
 bool static_key_initialized __read_mostly;
 EXPORT_SYMBOL_GPL(static_key_initialized);
 
+//+++ ASUS_BSP : miniporting : Add for audio dbg mode
+int g_user_dbg_mode = 1;
+EXPORT_SYMBOL(g_user_dbg_mode);
+
+static int set_user_dbg_mode(char *str)
+{
+	if (strcmp("y", str) == 0)
+		g_user_dbg_mode = 1;
+	else
+		g_user_dbg_mode = 0;
+	g_user_dbg_mode = 1;
+	printk("Kernel dbg mode = %d\n", g_user_dbg_mode);
+	return 0;
+}
+__setup("dbg=", set_user_dbg_mode);
+//--- ASUS_BSP : miniporting : Add for audio dbg mode
+
 //+++ ASUS_BSP : miniporting
 enum DEVICE_HWID g_ASUS_hwID=ZE552KL_UNKNOWN;
 char hwid_info[32]={0};
@@ -254,27 +271,6 @@ EXPORT_SYMBOL(g_ASUS_hwID);
 
 //--- ASUS_BSP : miniporting
 
-//+++ ASUS_BSP : miniporting : Add for audio dbg mode
-int g_user_dbg_mode = 1;
-EXPORT_SYMBOL(g_user_dbg_mode);
-
-static int set_user_dbg_mode(char *str)
-{
-    if ( strcmp("y", str) == 0 )
-    {
-        g_user_dbg_mode = 1;
-    }
-    else
-    {
-        g_user_dbg_mode = 0;
-    }
-    g_user_dbg_mode = 1;
-    printk("Kernel dbg mode = %d\n", g_user_dbg_mode);
-    return 0;
-}
-__setup("dbg=", set_user_dbg_mode);
-//--- ASUS_BSP : miniporting : Add for audio dbg mode
-
 //ASUS_BSP Austin_T : add for kernel charger mode. +++
 bool g_Charger_mode = false;
 
@@ -308,23 +304,6 @@ __setup("androidboot.thermal.alert=", set_usb_alert_mode);
 EXPORT_SYMBOL(g_usb_alert_mode);
 //ASUS_BSP Austin_T : add for usb alert suboard status.
 
-//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. +++
-bool g_is_CN_sku = false;
-
-static int check_CN_Sku(char *str)
-{
-    if (strcmp("15", str) == 0)
-        g_is_CN_sku = true;
-    else
-        g_is_CN_sku = false;
-
-    printk("[USB] g_is_CN_sku = %d\n", g_is_CN_sku);
-    return 0;
-}
-__setup("androidboot.id.rf=", check_CN_Sku);
-EXPORT_SYMBOL(g_is_CN_sku);
-//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. ---
-
 //+++ ASUS_BSP : miniporting : Add for audio dbg mode
 int g_ftm_mode = 0;
 EXPORT_SYMBOL(g_ftm_mode);
@@ -344,6 +323,23 @@ static int set_ftm_mode(char *str)
 }
 __setup("androidboot.pre-ftm=", set_ftm_mode);
 //--- ASUS_BSP : miniporting : Add for audio dbg mode
+
+//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. +++
+bool g_is_CN_sku = false;
+
+static int check_CN_Sku(char *str)
+{
+    if (strcmp("15", str) == 0)
+        g_is_CN_sku = true;
+    else
+        g_is_CN_sku = false;
+
+    printk("[USB] g_is_CN_sku = %d\n", g_is_CN_sku);
+    return 0;
+}
+__setup("androidboot.id.rf=", check_CN_Sku);
+EXPORT_SYMBOL(g_is_CN_sku);
+//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. ---
 
 /*
  * If set, this is an indication to the drivers that reset the underlying
@@ -596,7 +592,6 @@ static int set_lcd_id(char *str)
     return 0;
 }
 __setup("PANEL=", set_lcd_id);
-
 #ifndef CONFIG_SMP
 static const unsigned int setup_max_cpus = NR_CPUS;
 #ifdef CONFIG_X86_LOCAL_APIC
@@ -1016,7 +1011,7 @@ static int __init_or_module do_one_initcall_debug(initcall_t fn)
 	int ret;
 
 	if (initcall_debug)
-	printk(KERN_DEBUG "calling  %pF @ %i\n", fn, task_pid_nr(current));
+		printk(KERN_DEBUG "calling  %pF @ %i\n", fn, task_pid_nr(current));
 	calltime = ktime_get();
 	ret = fn();
 	rettime = ktime_get();
@@ -1025,7 +1020,7 @@ static int __init_or_module do_one_initcall_debug(initcall_t fn)
 	if (initcall_debug)
 		printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n",
 			 fn, ret, duration);
-	
+
 	if (initcall_debug == 0) {
 		if (duration > 100000)
 			printk(KERN_WARNING "[debuginit] initcall %pF returned %d after %lld usecs\n", fn,

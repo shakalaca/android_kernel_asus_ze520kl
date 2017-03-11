@@ -81,24 +81,24 @@ struct gpio_keys_drvdata {
 	struct gpio_button_data data[0];
 };
 
-static struct device *global_dev;
-static struct syscore_ops gpio_keys_syscore_pm_ops;
-
-static void gpio_keys_syscore_resume(void);
-
 void keysavelog_func(struct work_struct *work)
 {
 	int ret = -1;
 	char cmdpath[] = "/system/bin/recvkernelevt";
-	char *argv[] = {cmdpath, "savelogmtp",NULL};
+	char *argv[] = {cmdpath, "savelogmtp", NULL};
 	char *envp[] = {"HOME=/", "PATH=/sbin:/system/bin:/system/sbin:/vendor/bin", NULL};
 
 	printk("[Debug+++] trigger savelogmtp on userspace\n");
 	ret = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
 	printk("[Debug---] trigger savelogmtp on userspace, ret = %d\n", ret);
 
-	return;
+	return;	
 }
+
+static struct device *global_dev;
+static struct syscore_ops gpio_keys_syscore_pm_ops;
+
+static void gpio_keys_syscore_resume(void);
 
 /*
  * SYSFS interface for enabling/disabling keys and switches:
@@ -414,7 +414,7 @@ static struct attribute *gpio_keys_attrs[] = {
 	&dev_attr_disabled_keys.attr,
 	&dev_attr_disabled_switches.attr,
 	&dev_attr_enabled_wakeup.attr,		//ASUS BSP : Austin_T +++
-    &dev_attr_disabled_wakeup.attr,		//ASUS BSP : Austin_T +++
+        &dev_attr_disabled_wakeup.attr,		//ASUS BSP : Austin_T +++
 	NULL,
 };
 

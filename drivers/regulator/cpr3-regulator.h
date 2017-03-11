@@ -494,6 +494,37 @@ struct cpr3_aging_sensor_info {
 };
 
 /**
+ * struct cpr3_reg_info - Register information data structure
+ * @name:	Register name
+ * @addr:	Register physical address
+ * @value:	Register content
+ * @virt_addr:	Register virtual address
+ *
+ * This data structure is used to dump some critical register contents
+ * when the device crashes due to a kernel panic.
+ */
+struct cpr3_reg_info {
+	const char	*name;
+	u32		addr;
+	u32		value;
+	void __iomem	*virt_addr;
+};
+
+/**
+ * struct cpr3_panic_regs_info - Data structure to dump critical register
+ *		contents.
+ * @reg_count:		Number of elements in the regs array
+ * @regs:		Array of critical registers information
+ *
+ * This data structure is used to dump critical register contents when
+ * the device crashes due to a kernel panic.
+ */
+struct cpr3_panic_regs_info {
+	int			reg_count;
+	struct cpr3_reg_info	*regs;
+};
+
+/**
  * struct cpr3_controller - CPR3 controller data structure
  * @dev:		Device pointer for the CPR3 controller device
  * @name:		Unique name for the CPR3 controller
@@ -535,6 +566,10 @@ struct cpr3_aging_sensor_info {
  * @iface_clk:		Pointer to the CPR3 interface clock (platform specific)
  * @bus_clk:		Pointer to the CPR3 bus clock (platform specific)
  * @irq:		CPR interrupt number
+ * @irq_affinity_mask:	The cpumask for the CPUs which the CPR interrupt should
+ *			have affinity for
+ * @cpu_hotplug_notifier: CPU hotplug notifier used to reset IRQ affinity when a
+ *			CPU is brought back online
  * @ceiling_irq:	Interrupt number for the interrupt that is triggered
  *			when hardware closed-loop attempts to exceed the ceiling
  *			voltage
@@ -630,6 +665,13 @@ struct cpr3_aging_sensor_info {
  * @aging_sensor:	Array of CPR3 aging sensors which are used to perform
  *			aging measurements at a runtime.
  * @aging_sensor_count:	Number of elements in the aging_sensor array
+ * @aging_gcnt_scaling_factor: The scaling factor used to derive the gate count
+ *			used for aging measurements. This value is divided by
+ *			1000 when used as shown in the below equation:
+ *			      Aging_GCNT = GCNT_REF * scaling_factor / 1000.
+ *			For example, a value of 1500 specifies that the gate
+ *			count (GCNT) used for aging measurement should be 1.5
+ *			times of reference gate count (GCNT_REF).
  * @step_quot_fixed:	Fixed step quotient value used for target quotient
  *			adjustment if use_dynamic_step_quot is not set.
  *			This parameter is only relevant for CPR4 controllers
@@ -658,6 +700,9 @@ struct cpr3_aging_sensor_info {
  *			VDD supply voltage to settle after being increased or
  *			decreased by step_volt microvolts which is used when
  *			SDELTA voltage margin adjustments are applied.
+ * @panic_regs_info:	Array of panic registers information which provides the
+ *			list of registers to dump when the device crashes.
+ * @panic_notifier:	Notifier block registered to global panic notifier list.
  *
  * This structure contains both configuration and runtime state data.  The
  * elements cpr_allowed_sw, use_hw_closed_loop, aggr_corner, cpr_enabled,
@@ -695,6 +740,8 @@ struct cpr3_controller {
 	struct clk		*iface_clk;
 	struct clk		*bus_clk;
 	int			irq;
+	struct cpumask		irq_affinity_mask;
+	struct notifier_block	cpu_hotplug_notifier;
 	int			ceiling_irq;
 	struct msm_apm_ctrl_dev *apm;
 	int			apm_threshold_volt;
@@ -737,6 +784,7 @@ struct cpr3_controller {
 	bool			aging_failed;
 	struct cpr3_aging_sensor_info *aging_sensor;
 	int			aging_sensor_count;
+	u32			aging_gcnt_scaling_factor;
 
 	u32			step_quot_fixed;
 	u32			initial_temp_band;
@@ -749,6 +797,8 @@ struct cpr3_controller {
 	u32			temp_sensor_id_start;
 	u32			temp_sensor_id_end;
 	u32			voltage_settling_time;
+	struct cpr3_panic_regs_info *panic_regs_info;
+	struct notifier_block	panic_notifier;
 };
 
 /* Used for rounding voltages to the closest physically available set point. */
@@ -815,6 +865,8 @@ int cpr4_parse_core_count_temp_voltage_adj(struct cpr3_regulator *vreg,
 			bool use_corner_band);
 int cpr3_apm_init(struct cpr3_controller *ctrl);
 int cpr3_mem_acc_init(struct cpr3_regulator *vreg);
+int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
+			int fuse_count);
 
 #else
 
@@ -985,6 +1037,12 @@ static inline int cpr3_apm_init(struct cpr3_controller *ctrl)
 static inline int cpr3_mem_acc_init(struct cpr3_regulator *vreg)
 {
 	return 0;
+}
+
+static int cpr3_parse_fuse_combo_map(struct cpr3_regulator *vreg, u64 *fuse_val,
+			int fuse_count)
+{
+	return -EPERM;
 }
 
 #endif /* CONFIG_REGULATOR_CPR3 */
