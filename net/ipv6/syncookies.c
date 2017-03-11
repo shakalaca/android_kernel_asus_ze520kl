@@ -241,7 +241,10 @@ struct sock *cookie_v6_check(struct sock *sk, struct sk_buff *skb)
 		memset(&fl6, 0, sizeof(fl6));
 		fl6.flowi6_proto = IPPROTO_TCP;
 		fl6.daddr = ireq->ir_v6_rmt_addr;
-		final_p = fl6_update_dst(&fl6, np->opt, &final);
+		//ASUS_BSP+++ "update for Google security patch (ANDROID-28746669)"
+		//final_p = fl6_update_dst(&fl6, np->opt, &final);
+		final_p = fl6_update_dst(&fl6, rcu_dereference(np->opt), &final);
+		//ASUS_BSP--- "update for Google security patch (ANDROID-28746669)"
 		fl6.saddr = ireq->ir_v6_loc_addr;
 		fl6.flowi6_oif = sk->sk_bound_dev_if;
 		fl6.flowi6_mark = ireq->ir_mark;

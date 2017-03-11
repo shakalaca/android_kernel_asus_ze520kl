@@ -1089,6 +1089,11 @@ void ASUSEvtlog(const char *fmt, ...)
 EXPORT_SYMBOL(ASUSEvtlog);
 
 /*ASUS-BBSP SubSys Health Record+++*/
+#define REBOOT_COUNT	"/asdf/reboot_count"
+#define NORMAL_COUNT	"/asdf/normal_count"
+#define TOTAL_COUNT	"/asdf/total_count"
+#define PWK_COUNT	"/asdf/pwk_count"
+
 static void do_write_subsys_worker(struct work_struct *work)
 {
 	int hfile = -MAX_ERRNO;
@@ -1114,6 +1119,7 @@ static void do_count_subsys_worker(struct work_struct *work)
 {
 	int  hfile = -MAX_ERRNO;
 	char r_buf[SUBSYS_R_MAXLEN];
+	char r_buf2[SUBSYS_R_MAXLEN];
 	int  r_size = 0;
 	int  index = 0;
 	char keys[] = "[SSR]:";
@@ -1170,7 +1176,7 @@ static void do_count_subsys_worker(struct work_struct *work)
 	}
 
 
-        hfile = sys_open("/asdf/reboot_count", O_RDONLY|O_SYNC, 0);
+        hfile = sys_open(REBOOT_COUNT, O_RDONLY|O_SYNC, 0);
         memset(r_buf, 0, sizeof(r_buf));
         if(!IS_ERR((const void *)(ulong)hfile)) {
                 sys_read(hfile, r_buf, sizeof(r_buf));
@@ -1179,8 +1185,17 @@ static void do_count_subsys_worker(struct work_struct *work)
 		strcpy(r_buf, "0");
 	}
 
+        hfile = sys_open(PWK_COUNT, O_RDONLY|O_SYNC, 0);
+        memset(r_buf2, 0, sizeof(r_buf2));
+        if(!IS_ERR((const void *)(ulong)hfile)) {
+                sys_read(hfile, r_buf2, sizeof(r_buf2));
+                sys_close(hfile);
+        } else {
+                strcpy(r_buf2, "0");
+        }
 
-	sprintf(g_SubSys_C_Buf, "%s-%d-%d-%d-%d", r_buf, Counts[0], Counts[1], Counts[2], Counts[3]+Counts[4]);/* MODEM, WCNSS, ADSP, OTHERS(VENUS+A506_ZAP) */
+	/*ABNUORMAL REBOOT, MODEM, WCNSS, ADSP, OTHERS(VENUS+A506_ZAP), LONG PRESS PWK */
+	sprintf(g_SubSys_C_Buf, "%s-%d-%d-%d-%d-%s", r_buf, Counts[0], Counts[1], Counts[2], Counts[3]+Counts[4], r_buf2);
 	complete(&SubSys_C_Complete);
 }
 
@@ -1188,9 +1203,10 @@ static void do_delete_subsys_worker(struct work_struct *work)
 {
 	sys_unlink(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt");
 	sys_unlink(SUBSYS_HEALTH_MEDICAL_TABLE_PATH"_old.txt");
-	sys_unlink("/asdf/reboot_count");
-	sys_unlink("/asdf/normal_count");
-	sys_unlink("/asdf/total_count");
+	sys_unlink(REBOOT_COUNT);
+	sys_unlink(PWK_COUNT);
+	sys_unlink(TOTAL_COUNT);
+	sys_unlink(NORMAL_COUNT);
 	ASUSEvtlog("[SSR-Info] SubSys Medical Table Deleted\n");
 }
 

@@ -216,7 +216,10 @@ struct ipv6_pinfo {
 	struct ipv6_ac_socklist	*ipv6_ac_list;
 	struct ipv6_fl_socklist __rcu *ipv6_fl_list;
 
-	struct ipv6_txoptions	*opt;
+	//ASUS_BSP+++ "update for Google security patch (ANDROID-28746669)"
+	//struct ipv6_txoptions	*opt;
+	struct ipv6_txoptions __rcu	*opt;
+	//ASUS_BSP--- "update for Google security patch (ANDROID-28746669)"
 	struct sk_buff		*pktoptions;
 	struct sk_buff		*rxpmtu;
 	struct {

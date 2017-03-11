@@ -933,6 +933,32 @@ void set_vib_enable(int value)
 	printk("ASDF: set vibrator enable. (%s ms)\n", timeout_ms);
 }
 
+
+void pwk_counting(void)
+{
+        struct file *fp = NULL;
+        mm_segment_t oldfs;
+        char value[20];
+        loff_t pos = 0;
+
+        fp = filp_open("/asdf/pwk_count", O_RDWR|O_CREAT, 0664);
+        if(IS_ERR_OR_NULL(fp)) return;
+
+        oldfs = get_fs();
+        set_fs(KERNEL_DS);
+
+        if(vfs_read(fp, value, strlen(value), &pos) >= 0) {
+		sprintf(value,"%ld",simple_strtol(value,NULL,10)+1);
+		pos = 0;
+		vfs_write(fp, value, strlen(value), &pos);
+        }
+
+        set_fs(oldfs);
+        vfs_fsync(fp,0);
+        filp_close(fp,NULL);
+}
+
+
 #define TIMEOUT_COUNT 55
 static struct work_struct __wait_for_power_key_6s_work;
 static unsigned long press_time;
@@ -964,6 +990,9 @@ void wait_for_power_key_6s_work(struct work_struct *work)
 		if (((i == TIMEOUT_COUNT) || (slow_ok == 1) ||
 				time_after_eq(jiffies, timeout)) &&
 				(is_holding_power_key()) && (i > 0)) {
+
+			pwk_counting();
+
 			duration = (jiffies - startime)*10/HZ;
 			ASUSEvtlog("ASDF: reset device after power press %d.%d sec (%d)\n",
 					duration/10, duration%10, i);
@@ -978,7 +1007,9 @@ void wait_for_power_key_6s_work(struct work_struct *work)
 			printk(KERN_CRIT "asus_global.ramdump_enable_magic = 0x%x\n",
 					asus_global.ramdump_enable_magic);
 			printk("force reset device!!\n");
+
 			kernel_restart(NULL);
+
 		}
 
 		power_key_6s_running = 0;

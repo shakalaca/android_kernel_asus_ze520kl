@@ -323,8 +323,12 @@ static void rgbSensor_setDelay(void)
 
 void rgbSensor_workAround(void)
 {
-	_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_RESERVE, 0);
-	RGB_DBG("%s: done\n", __func__);
+	if (cm_lp_info) {
+		_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_RESERVE, 0);
+		RGB_DBG("%s: done\n", __func__);
+	} else{
+		RGB_DBG_E("%s: rgb sensor isn't registered\n", __func__);
+	}
 }
 
 static int rgbSensor_doEnable(bool enabled)
@@ -1390,6 +1394,7 @@ err_rgbSensor_miscRegister:
 err_rgbSensor_setup:
 	mutex_destroy(&als_enable_mutex);
 	kfree(lpi);
+	cm_lp_info = NULL;
 	return ret;
 }
 

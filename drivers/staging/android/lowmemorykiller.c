@@ -61,7 +61,13 @@
 #define CREATE_TRACE_POINTS
 #include "trace/lowmemorykiller.h"
 
-static bool trigger_dumpsys_meminfo = true;
+static unsigned long lowmem_killNothing_timeout = 0;
+static unsigned long lowmem_justkilled_timeout = 0;
+static int killNothing = 0;
+static int killNothing_adj = 2000;
+static int justkilled_adj = 2000;
+static bool trigger_dumpsys_meminfo = false;
+static unsigned long trigger_dumpsys_meminfo_time;
 static bool trigger_dump_mem = false;
 static bool print_log_flag = false;
 static struct work_struct __dumpmem_work;
@@ -85,7 +91,7 @@ static int lowmem_minfree[6] = {
 static int lowmem_minfree_size = 4;
 static int lmk_fast_run = 1;
 
-static unsigned long lowmem_deathpending_timeout;
+//static unsigned long lowmem_deathpending_timeout;
 
 #define lowmem_print(level, x...)			\
 	do {						\
@@ -103,7 +109,7 @@ static unsigned long lowmem_count(struct shrinker *s,
 }
 
 static atomic_t shift_adj = ATOMIC_INIT(0);
-static short adj_max_shift = 450;
+static short adj_max_shift = 353;
 
 unsigned long time_out;
 unsigned long print_log_time_out;
@@ -157,19 +163,9 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 	unsigned long pressure = action;
 	int array_size = ARRAY_SIZE(lowmem_adj);
 	
-
-	if (pressure >= 80) 
-	{
-		other_file = global_page_state(NR_FILE_PAGES) + zcache_pages() -
-			global_page_state(NR_SHMEM) -
-			total_swapcache_pages();
-		other_free = global_page_state(NR_FREE_PAGES);
-		printk("lowmemkiller pressure=%ld, other_file=%d, other_free=%d\n", pressure, other_file * 4096, other_free * 4096);
-		
-	}
 	if (!enable_adaptive_lmk)
 		return 0;
-
+	#if 0
 	if (pressure >= 95) {
 		other_file = global_page_state(NR_FILE_PAGES) + zcache_pages() -
 			global_page_state(NR_SHMEM) -
@@ -178,7 +174,11 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 
 		atomic_set(&shift_adj, 1);
 		trace_almk_vmpressure(pressure, other_free, other_file);
-	} else if (pressure >= 90) {
+	} else 
+	#endif
+	//if the pressure is larger than 98, and the other file is larger than vmpressure_file_min, activate the a_lmk
+	if (pressure >= 98) {
+		//printk("lowmem:lmk_vmpressure_notifier pressure=%ld\n", pressure);
 		if (lowmem_adj_size < array_size)
 			array_size = lowmem_adj_size;
 		if (lowmem_minfree_size < array_size)
@@ -189,12 +189,13 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 			total_swapcache_pages();
 
 		other_free = global_page_state(NR_FREE_PAGES);
-
+		
 		if ((other_free < lowmem_minfree[array_size - 1]) &&
 			(other_file < vmpressure_file_min)) {
 				atomic_set(&shift_adj, 1);
 				trace_almk_vmpressure(pressure, other_free,
 					other_file);
+				printk("lowmem:lmk_vmpressure_notifier doing aLMK , other_file=%d, lowmem_minfree[array_size - 1]=%d, other_free=%d,\n", other_file, lowmem_minfree[array_size - 1], other_free);
 		}
 	} else if (atomic_read(&shift_adj)) {
 		/*
@@ -470,6 +471,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 
 	dumppid_tasksize = 0;
 	dumppid = 0;
+	
 	if (mutex_lock_interruptible(&scan_mutex) < 0)
 		return 0;
 
@@ -504,12 +506,29 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	ret = adjust_minadj(&min_score_adj);
 	if (previous_min_score_adj != min_score_adj) {
 		bIsAdapterLMK = true;
-		nTaskMax = 1;
 	}
+	// if the kswapd comes, directly do the lowmemkiller. others, check if the justkilled/killnothing timeout to sleep or proceed to kill processes.
+	if(!current_is_kswapd())
+	{
+		
+		if((min_score_adj >= justkilled_adj) && time_before_eq(jiffies, lowmem_justkilled_timeout))
+		{
+			mutex_unlock(&scan_mutex);
+			msleep(100);
+			//printk("lowmem:lowmem_justkilled_timeout\n");
+			return other_free/5;
+		}		
 
-	lowmem_print(3, "lowmem_scan %lu, %x, ofree %d %d, ma %hd\n",
-			sc->nr_to_scan, sc->gfp_mask, other_free,
-			other_file, min_score_adj);
+		if((min_score_adj >= killNothing_adj) && time_before_eq(jiffies, lowmem_killNothing_timeout))
+		{
+			mutex_unlock(&scan_mutex);
+			//printk("lowmem:min_lowmem_killNothing_timeout\n");
+			msleep(100);
+			return other_free/5;
+			
+		}
+	}
+	//lowmem_print(5, "lowmem_scan %lu, %x, ofree %d %d, ma %hd\n", sc->nr_to_scan, sc->gfp_mask, other_free, other_file, min_score_adj);
 
 	if (min_score_adj == OOM_SCORE_ADJ_MAX + 1) {
 		trace_almk_shrink(0, ret, other_free, other_file, 0);
@@ -524,7 +543,20 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			print_log_flag = true;
 			print_log_time_out =  jiffies + HZ * 10; 
 	}
-
+	// if aLMK, kill one app at a time, others, check the min_score_adj, the lower the memory, the more the apps to kill
+	if(bIsAdapterLMK)
+		nTaskMax = 1;
+	else if(min_score_adj >= 1000)
+		nTaskMax = 1;
+	else if(min_score_adj >= 529)
+		nTaskMax = 2;		
+	else if(min_score_adj >= 300)
+		nTaskMax = 4;	
+	else if(min_score_adj >= 117)
+		nTaskMax = 5;
+	else
+		nTaskMax = 6;
+	
 	rcu_read_lock();
 	for_each_process(tsk) {
 		struct task_struct *p;
@@ -537,23 +569,18 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		if (test_task_flag(tsk, TIF_MM_RELEASED))
 			continue;
 
-		if (time_before_eq(jiffies, lowmem_deathpending_timeout)) {
-			if (test_task_flag(tsk, TIF_MEMDIE)) {
-				list_reset(&ListHead);
-				rcu_read_unlock();
-				/* give the system time to free up the memory */
-				msleep_interruptible(20);
-				mutex_unlock(&scan_mutex);
-				return 0;
-			}
-		}
-
+		
+		if (test_task_flag(tsk, TIF_MEMDIE)) 
+			continue;
+		
+		
 		p = find_lock_task_mm(tsk);
 		if (!p)
 			continue;
 
 		oom_score_adj = p->signal->oom_score_adj;
 
+		//save the memory inforation if the oomadj is lower than MINFREE_TO_PRINT_LOG(300) for showing
 		if(selected_oom_score_adj < MINFREE_TO_PRINT_LOG)
 		{
 			tasksize = get_mm_rss(p->mm);
@@ -566,6 +593,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				dumppid_tasksize = get_mm_rss(p->mm);
 				dumppid = p->pid;
 		}
+		//if the system is occupying too much memory, dumpsys and show the smaps. 
 		if((get_mm_rss(p->mm) * (long)PAGE_SIZE / 1048576) > 600){
 			
 			if(strstr(p->comm,"system_server") !=NULL ){
@@ -574,8 +602,10 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			}
 
 			if(print_log_flag)
-				printk("lowmemorykiller: %6d  %8ldkB %8d %s\n",p->pid, tasksize * (long)(PAGE_SIZE / 1024),oom_score_adj, p->comm);
+				printk("lowmemorykiller: %6d  %8ldkB %8d %s\n",p->pid, get_mm_rss(p->mm) * (long)(PAGE_SIZE / 1024),oom_score_adj, p->comm);
 		}
+		
+		//do not kill launcher, acore, gapps, media until the min_score is under 200
 		if(strstr(p->comm,"launcher") != NULL  && min_score_adj > 200){
 			task_unlock(p);
 			//printk("lowmemorykiller: Don't kill launcher when min_socre_adj > 300\n");
@@ -611,7 +641,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			continue;
 		
 		
-		lowmem_print(3, "[Candidate] comm: %s, oom_score_adj: %d, tasksize: %d\n", p->comm, oom_score_adj, tasksize);
+		//lowmem_print(3, "[Candidate] comm: %s, oom_score_adj: %d, tasksize: %d\n", p->comm, oom_score_adj, tasksize);
 		if (nTaskNum == 0) {
 			if (list_insert(p, &ListHead))
 				nTaskNum++;
@@ -636,14 +666,23 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				if (pTask->mm)
 					nTargetSize = get_mm_rss(pTask->mm);
 				task_unlock(pTask);
-				if (oom_score_adj > nTargeteAdj) {
-				} else if (oom_score_adj < nTargeteAdj) {
-					break;
-				} else {
-					if (tasksize > nTargetSize) {
-					} else if (tasksize <= nTargetSize) {
+				if(!bIsAdapterLMK)
+					{
+					if (oom_score_adj > nTargeteAdj) {
+					} else if (oom_score_adj < nTargeteAdj) {
 						break;
+					} else {
+						if (tasksize > nTargetSize) {
+						} else if (tasksize <= nTargetSize) {
+							break;
+						}
 					}
+				}
+				else
+				{
+					//sort the process by tasksize only when in a_lmk.
+					if (tasksize <= nTargetSize)
+						break;
 				}
 			}
 
@@ -678,28 +717,9 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				nTaskNum--;
 			}
 		}
-		/*
-		list_for_each_entry_safe(pTaskIterator, pTaskNext, &ListHead, node) {
-			char *szName = "NULL";
-			int nAdj = 0;
-			int nSize = 0;
-			struct task_struct *pTask;
-			pTask = pTaskIterator->pTask;
-			if (!pTask)
-				continue;
-			task_lock(pTask);
-			if (pTask->comm)
-				szName = pTask->comm;
-			if (pTask->signal)
-				nAdj = pTask->signal->oom_score_adj;
-			if (pTask->mm)
-				nSize = get_mm_rss(pTask->mm);
-			lowmem_print(3, "[Current] comm: %s, oom_score_adj: %d, tasksize: %d\n", pTask->comm, nAdj, nSize);
-			task_unlock(pTask);
-		}
-		*/
 	}
-	//if (selected) {
+	killNothing = 1;
+
 	list_for_each_entry_safe_reverse(pTaskIterator, pTaskNext, &ListHead, node) {
 		char reason[256];
 		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
@@ -716,14 +736,27 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		if (selected->signal)
 			selected_oom_score_adj = selected->signal->oom_score_adj;
 		if (selected_oom_score_adj < min_score_adj) {
-			lowmem_print(1, "Skip killing '%s' (%d), adj %hd is lower than min_score_adj %d now\n", selected->comm, selected->pid, selected_oom_score_adj, min_score_adj);
-                        task_unlock(selected);
-                        continue;
-                }
+			lowmem_print(1, "lowmem:Skip killing '%s' (%d), adj %hd is lower than min_score_adj %d now\n", selected->comm, selected->pid, selected_oom_score_adj, min_score_adj);
+			task_unlock(selected);
+			continue;
+        }
+        if(selected->pid == current->pid)
+        {
+			lowmem_print(1, "lowmem:Skip killing '%s' (adj=%d), pid=%d itself\n", selected->comm, selected_oom_score_adj, selected->pid);
+			task_unlock(selected);
+			continue;
+		}
 		if (selected->mm)
 			selected_tasksize = get_mm_rss(selected->mm);
 		task_unlock(selected);
-
+		
+		// when a_lmk is activated, do not kill until the app is larger than 80MB
+		if (bIsAdapterLMK && (selected_tasksize * ((long)PAGE_SIZE /1024 )< (long)(80*1024)))
+		{
+			printk("lowmem: %s selected(%d MB)(adj=%d) < 80MB\n", selected->comm, (selected_tasksize * 4) / 1024 , selected_oom_score_adj);
+			continue;
+		}
+			
 		if (bIsAdapterLMK)
 			snprintf(reason, sizeof(reason), "adaptive lmk is triggered and adjusts oom_score_adj to %hd, cache_size=%ldkB\n", min_score_adj, cache_size);
 		else
@@ -755,44 +788,32 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			     nr_shmem * (long)(PAGE_SIZE / 1024), nr_swapcache_pages * (long)(PAGE_SIZE / 1024),
 			     sc->gfp_mask);
 
-		if (selected_oom_score_adj > 300 && !trigger_dumpsys_meminfo) {
+		if (selected_oom_score_adj < 100 && !trigger_dumpsys_meminfo) {
 			trigger_dumpsys_meminfo = true;
 		}
-
-		if (selected_oom_score_adj < 100) {
-			if(trigger_dumpsys_meminfo) {
-				trigger_dumpsys_meminfo = false;
-
-				printk("[Vincent] start to schedule __keysavelog_work\n");
-				schedule_work(&__dumpmem_work);
-			}
-		}
-
-		if (selected_oom_score_adj == 0) {
-			show_mem(SHOW_MEM_FILTER_NODES);
-			dump_tasks(NULL, NULL);
-		}
-
-		lowmem_deathpending_timeout = jiffies + HZ;
+		// we are killing, so set the killnothing flag to 0
+		killNothing = 0;
+		killNothing_adj = 2000;
 		set_tsk_thread_flag(selected, TIF_MEMDIE);
 		send_sig(SIGKILL, selected, 0);
 		rem += selected_tasksize;
 		trace_almk_shrink(selected_tasksize, ret,
 			other_free, other_file, selected_oom_score_adj);
+		// set the justkilled flag to true, and remember the min_score_adj for reference
+		lowmem_justkilled_timeout = jiffies + HZ/nTaskMax;
+		justkilled_adj = min_score_adj;
 	}
 
 	/* give the system time to free up the memory */
-	msleep_interruptible(20);
 
 	list_reset(&ListHead);
-	lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n",
-		     sc->nr_to_scan, sc->gfp_mask, rem);
+	//lowmem_print(4, "lowmem_scan %lu, %x, return %lu\n", sc->nr_to_scan, sc->gfp_mask, rem);
 	rcu_read_unlock();
 	mutex_unlock(&scan_mutex);
 	print_log_flag = false;
 	if(time_after(jiffies,dumpmem_time_out) && trigger_dump_mem){
 			schedule_work(&__dumpmem_work);
-			dumpmem_time_out = jiffies + HZ * 60; //1min
+			dumpmem_time_out = jiffies + HZ * 120; //1min
 			trigger_dump_mem = false;
 	}
 	if(selected && (selected_oom_score_adj < MINFREE_TO_PRINT_LOG) && time_after(jiffies,time_out)){
@@ -802,8 +823,26 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				printk(meminfo_str[count]);
 				count++;
 			}
-			time_out = jiffies + HZ * 5;
+			time_out = jiffies + HZ * 10;
+	}
 
+	if(trigger_dumpsys_meminfo && time_after(jiffies, trigger_dumpsys_meminfo_time)) {
+		trigger_dumpsys_meminfo = false;
+		trigger_dumpsys_meminfo_time = jiffies + 60 * HZ;
+		printk("[Vincent] start to schedule __keysavelog_work\n");
+		schedule_work(&__dumpmem_work);
+	}
+	
+	if (selected_oom_score_adj == 0) {
+		show_mem(SHOW_MEM_FILTER_NODES);
+		dump_tasks(NULL, NULL);
+	}	
+
+	if(killNothing)
+	{
+		killNothing_adj = min_score_adj;
+		lowmem_killNothing_timeout = jiffies + HZ;
+		//printk("lowmem:killnothing min_score_adj=%d \n", killNothing_adj);
 	}
 	return rem;
 }
