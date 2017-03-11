@@ -1,0 +1,49 @@
+
+qcom,Libra_2900mah_4p38v_LG {
+	/* #Libra_2900mah_4p38v_LG*/
+	qcom,max-voltage-uv = <4380000>;
+	qcom,nom-batt-capacity-mah = <2900>;
+	qcom,batt-id-kohm = <10>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "Libra_2900mah_4p38v_LG";
+	qcom,chg-rslow-comp-c1 = <3170768>;
+	qcom,chg-rslow-comp-c2 = <4139841>;
+	qcom,chg-rs-to-rslow = <1502253>;
+	qcom,chg-rslow-comp-thr = <0x9D>;
+	qcom,checksum = <0x7AC0>;
+	qcom,gui-version = "PMI8950GUI - 2.0.0.15";
+	qcom,fg-profile-data = [
+		 BC 83 F4 75 
+		 5F 7A 31 6E 
+		 63 83 E8 6F 
+		 1A 89 43 94 
+		 2A 82 6C 99 
+		 1F BC 3E C8 
+		 56 10 5E 83 
+		 77 52 D2 70 
+		 D7 44 3B 83 
+		 99 78 A6 84 
+		 17 7B 69 82 
+		 B6 98 9B B7 
+		 21 C8 70 15 
+		 36 0B 3C 5A 
+		 91 6F 9A F9 
+		 AE 34 5D 46 
+		 C6 3A 00 00 
+		 DF 22 E2 3A 
+		 DC 4C 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 BB 71 C0 70 
+		 3A 52 93 82 
+		 43 75 C0 62 
+		 9A 5B E4 7B 
+		 72 74 BC 60 
+		 A3 40 0C A8 
+		 20 08 63 59 
+		 64 A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};

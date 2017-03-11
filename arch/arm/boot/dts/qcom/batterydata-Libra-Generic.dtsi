@@ -1,0 +1,49 @@
+
+qcom,batterydata_Libra_Generic {
+	/* #batterydata_Libra_Generic*/
+	qcom,max-voltage-uv = <4380000>;
+	qcom,nom-batt-capacity-mah = <2900>;
+	qcom,batt-id-kohm = <100>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "batterydata_Generic";
+	qcom,chg-rslow-comp-c1 = <4238810>;
+	qcom,chg-rslow-comp-c2 = <7948741>;
+	qcom,chg-rs-to-rslow = <1189245>;
+	qcom,chg-rslow-comp-thr = <0xBB>;
+	qcom,checksum = <0x5A7F>;
+	qcom,gui-version = "PMI8950GUI - 2.0.0.15";
+	qcom,fg-profile-data = [
+		 D3 83 19 7C 
+		 48 80 7F 75 
+		 58 83 6D 65 
+		 76 83 AB 8E 
+		 40 82 E2 98 
+		 25 B7 FD C2 
+		 52 16 F5 83 
+		 D0 7C AF 80 
+		 22 76 4C 83 
+		 D6 70 1A 68 
+		 A7 7F 74 82 
+		 02 98 BC B5 
+		 86 C1 58 13 
+		 33 0B 62 5A 
+		 91 6F 29 FC 
+		 4D 3C C5 45 
+		 E2 42 00 00 
+		 63 46 75 18 
+		 CF 40 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 69 71 0F 70 
+		 31 66 F3 88 
+		 A7 7C C6 71 
+		 03 6C 0E 7B 
+		 A4 76 32 6B 
+		 6B 5A DC A1 
+		 2C 11 5B 4D 
+		 5C A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};

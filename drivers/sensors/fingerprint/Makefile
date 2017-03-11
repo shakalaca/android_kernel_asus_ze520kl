@@ -1,0 +1,1 @@
+obj-$(CONFIG_SYNAPTICS_SPIDRV)	+= fphandle.o

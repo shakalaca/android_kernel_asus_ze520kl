@@ -1,0 +1,80 @@
+/*
+ * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&int_codec {
+	status = "okay";
+	qcom,model = "msm8953-snd-card-mtp";
+	qcom,msm-ext-pa = "primary", "quinary";
+	qcom,msm-mbhc-hphl-swh = <1>;
+	qcom,msm-hs-micbias-type = "external";
+	qcom,audio-routing =
+		"RX_BIAS", "MCLK",
+		"SPK_RX_BIAS", "MCLK",
+		"INT_LDO_H", "MCLK",
+		"MIC BIAS External", "Handset Mic",
+		"MIC BIAS External2", "Headset Mic",
+		"MIC BIAS External", "Secondary Mic",
+		"AMIC1", "MIC BIAS External",
+		"AMIC2", "MIC BIAS External2",
+		"AMIC3", "MIC BIAS External";
+
+	qcom,msm-gpios =
+		"pri_i2s",
+		"quin_i2s";
+	qcom,pinctrl-names =
+		"all_off",
+		"pri_i2s_act",
+		"quin_act",
+		"quin_pri_i2s_act";
+	pinctrl-names =
+		"all_off",
+		"pri_i2s_act",
+		"quin_act",
+		"quin_pri_i2s_act";
+	pinctrl-0 = <&cdc_pdm_lines_sus &cdc_pdm_lines_2_sus
+			&pri_tlmm_lines_sus &pri_tlmm_ws_sus>;
+	pinctrl-1 = <&cdc_pdm_lines_act &cdc_pdm_lines_2_act
+			&pri_tlmm_lines_sus &pri_tlmm_ws_sus>;
+	pinctrl-2 = <&cdc_pdm_lines_sus &cdc_pdm_lines_2_sus
+			&pri_tlmm_lines_act &pri_tlmm_ws_act>;
+	pinctrl-3 = <&cdc_pdm_lines_act &cdc_pdm_lines_2_act
+			&pri_tlmm_lines_act &pri_tlmm_ws_act>;
+
+	AUDIO_DEBUG = <&tlmm 89 0x00>; /* ASUS_BSP Paul +++ */
+};
+
+&pm8953_diangu_dig {
+	status = "okay";
+};
+
+&pm8953_diangu_analog {
+	status = "okay";
+};
+
+/*
+&wsa881x_i2c_e {
+	status = "okay";
+};
+
+&wsa881x_i2c_44 {
+	status = "okay";
+};
+
+&wsa881x_i2c_f {
+	status = "okay";
+};
+
+&wsa881x_i2c_45 {
+	status = "okay";
+};
+*/

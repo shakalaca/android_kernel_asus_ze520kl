@@ -1,0 +1,49 @@
+
+qcom,Libra_2900mah_4p38v_Coslight {
+	/* #Libra_2900mah_4p38v_Coslight*/
+	qcom,max-voltage-uv = <4380000>;
+	qcom,nom-batt-capacity-mah = <2900>;
+	qcom,batt-id-kohm = <100>;
+	qcom,battery-beta = <3435>;
+	qcom,battery-type = "Libra_2900mah_4p38v_Coslight";
+	qcom,chg-rslow-comp-c1 = <4424127>;
+	qcom,chg-rslow-comp-c2 = <9022732>;
+	qcom,chg-rs-to-rslow = <1079251>;
+	qcom,chg-rslow-comp-thr = <0xC1>;
+	qcom,checksum = <0xB4F0>;
+	qcom,gui-version = "PMI8950GUI - 2.0.0.15";
+	qcom,fg-profile-data = [
+		 E6 83 D9 7C 
+		 E7 80 F2 76 
+		 65 83 02 74 
+		 CE 88 82 8F 
+		 2D 82 92 99 
+		 60 BC A2 C8 
+		 5A 11 E7 83 
+		 5C 7C 68 80 
+		 D6 75 68 83 
+		 39 6E 4C 89 
+		 D6 94 4B 82 
+		 EA 99 35 BD 
+		 35 CA 52 0D 
+		 FB 0A 69 5A 
+		 91 6F 9A F9 
+		 A3 3D 3F 47 
+		 FA 43 00 00 
+		 88 45 4B 34 
+		 A6 3B 00 00 
+		 00 00 00 00 
+		 00 00 00 00 
+		 D5 70 93 6B 
+		 24 6E 7C 8A 
+		 36 7C 1A 71 
+		 FA 76 50 79 
+		 FA 75 7C 6A 
+		 3D 7D D4 92 
+		 24 91 59 CA 
+		 57 A0 71 0C 
+		 28 00 FF 36 
+		 F0 11 30 03 
+		 00 00 00 0C 
+	];
+};
