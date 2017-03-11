@@ -39,6 +39,8 @@ static bool g_bResume = 1;
 static struct wake_lock pwr_key_wake_lock;
 //ASUS BSP Austin_T--- : Fix DoubleClickVolumeKey sometimes can't bring up panel
 
+static struct work_struct __keysavelog_work;
+
 //freddy +++ for key porting
 static int g_keycheck_abort = 0, g_keystate = 0; //set tag for abort method
 //freddy --- for key porting
@@ -83,6 +85,20 @@ static struct device *global_dev;
 static struct syscore_ops gpio_keys_syscore_pm_ops;
 
 static void gpio_keys_syscore_resume(void);
+
+void keysavelog_func(struct work_struct *work)
+{
+	int ret = -1;
+	char cmdpath[] = "/system/bin/recvkernelevt";
+	char *argv[] = {cmdpath, "savelogmtp",NULL};
+	char *envp[] = {"HOME=/", "PATH=/sbin:/system/bin:/system/sbin:/vendor/bin", NULL};
+
+	printk("[Debug+++] trigger savelogmtp on userspace\n");
+	ret = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
+	printk("[Debug---] trigger savelogmtp on userspace, ret = %d\n", ret);
+
+	return;
+}
 
 /*
  * SYSFS interface for enabling/disabling keys and switches:
@@ -408,6 +424,8 @@ static struct attribute_group gpio_keys_attr_group = {
 
 
 unsigned int b_press = 0; //ASUS_BSP : Eric
+static bool kvup = false;
+static int kdown_count = 0;
 
 static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 {
@@ -425,6 +443,27 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 			input_event(input, type, button->code, button->value);
 	} else {
 		input_event(input, type, button->code, !!state);
+
+		if (button->code == KEY_VOLUMEUP) {
+			if(state) {
+				kvup = true;
+			} else {
+				kvup = false;
+				kdown_count = 0;
+			}
+		}
+
+		if (button->code == KEY_VOLUMEDOWN) {
+			if(state && kvup) {
+				kdown_count++;
+				printk("[Debug] Prepare to trigger savelogmtp on userspace: volumn down count: %d\n", kdown_count);
+
+				if(kdown_count == 10) {
+					printk("[Debug] kernel trigger savelogmtp on userspace: \n");
+					schedule_work(&__keysavelog_work);
+				}
+			}
+		}
 
 		if(state) {
 			//ASUS BSP Austin_T+++ : Fix DoubleClickVolumeKey sometimes can't bring up panel
@@ -1144,6 +1183,7 @@ static struct platform_driver gpio_keys_device_driver = {
 
 static int __init gpio_keys_init(void)
 {
+	INIT_WORK(&__keysavelog_work, keysavelog_func);
 	return platform_driver_register(&gpio_keys_device_driver);
 }
 

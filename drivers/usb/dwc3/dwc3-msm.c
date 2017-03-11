@@ -84,12 +84,6 @@ int dcp_max_current = DWC3_IDEV_CHG_MAX;
 module_param(dcp_max_current, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(dcp_max_current, "max current drawn for DCP charger");
 
-// ASUS_BSP "Add DCD support"
-/* delay in msec before running DCD */
-int dcd_delay_ms = 1000;
-module_param(dcd_delay_ms, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(dcd_delay_ms, "delay in msec before running DCD");
-
 /* XHCI registers */
 #define USB3_HCSPARAMS1		(0x4)
 #define USB3_PORTSC		(0x420)
@@ -133,6 +127,11 @@ MODULE_PARM_DESC(dcd_delay_ms, "delay in msec before running DCD");
 #define	GSI_IF_STS	(QSCRATCH_REG_OFFSET + 0x1A4)
 #define	GSI_WR_CTRL_STATE_MASK	BIT(15)
 
+// ASUS_BSP "Add Unknown Charger Support"
+#if defined(CONFIG_UNKNOWN_CHARGER)
+extern void unknownChgNotify(void);
+#endif
+
 struct dwc3_msm_req_complete {
 	struct list_head list_item;
 	struct usb_request *req;
@@ -163,8 +162,6 @@ enum dwc3_id_state {
  * DWC3_PROPRIETARY_CHARGER	A non-standard charger that pulls DP/DM to
  *				specific voltages between 2.0-3.3v for
  *				identification.
- * DWC3_FLOATED_CHARGER		Non standard charger whose data lines are
- *				floating.
  */
 enum dwc3_chg_type {
 	DWC3_INVALID_CHARGER = 0,
@@ -172,7 +169,9 @@ enum dwc3_chg_type {
 	DWC3_DCP_CHARGER,
 	DWC3_CDP_CHARGER,
 	DWC3_PROPRIETARY_CHARGER,
-	DWC3_FLOATED_CHARGER,
+	#if defined(CONFIG_UNKNOWN_CHARGER)
+	DWC3_UNKNOWN_CHARGER,
+	#endif
 };
 
 struct dwc3_msm {
@@ -210,14 +209,18 @@ struct dwc3_msm {
 	bool			in_restart;
 	struct workqueue_struct *dwc3_wq;
 	struct delayed_work	sm_work;
+	#if defined(CONFIG_UNKNOWN_CHARGER)
+	// ASUS_BSP "Add Unknown Charger Support"
+	struct delayed_work	unknown_chg_work;
+	#endif
 	unsigned long		inputs;
 	enum dwc3_chg_type	chg_type;
 	unsigned		max_power;
 	bool			charging_disabled;
+	bool			detect_dpdm_floating;
 	enum usb_otg_state	otg_state;
 	enum usb_chg_state	chg_state;
 	int			pmic_id_irq;
-	u8			dcd_retries;
 	struct work_struct	bus_vote_w;
 	unsigned int		bus_vote;
 	u32			bus_perf_client;
@@ -681,6 +684,14 @@ static int dwc3_msm_ep_queue(struct usb_ep *ep,
 		return -EPERM;
 	}
 
+	if (!mdwc->original_ep_ops[dep->number]) {
+		dev_err(mdwc->dev,
+			"ep [%s,%d] was unconfigured as msm endpoint\n",
+			ep->name, dep->number);
+		spin_unlock_irqrestore(&dwc->lock, flags);
+		return -EINVAL;
+	}
+
 	if (!request) {
 		dev_err(mdwc->dev, "%s: request is NULL\n", __func__);
 		spin_unlock_irqrestore(&dwc->lock, flags);
@@ -688,14 +699,11 @@ static int dwc3_msm_ep_queue(struct usb_ep *ep,
 	}
 
 	if (!(request->udc_priv & MSM_SPS_MODE)) {
-		/* Not SPS mode, call original queue */
-		dev_vdbg(mdwc->dev, "%s: not sps mode, use regular queue\n",
+		dev_err(mdwc->dev, "%s: sps mode is not set\n",
 					__func__);
 
 		spin_unlock_irqrestore(&dwc->lock, flags);
-		return (mdwc->original_ep_ops[dep->number])->queue(ep,
-								request,
-								gfp_flags);
+		return -EINVAL;
 	}
 
 	/* HW restriction regarding TRB size (8KB) */
@@ -1357,8 +1365,7 @@ static int dwc3_msm_gsi_ep_op(struct usb_ep *ep,
  *
  * @return int - 0 on success, negetive on error.
  */
-int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
-							gfp_t gfp_flags)
+int msm_ep_config(struct usb_ep *ep, struct usb_request *request)
 {
 	struct dwc3_ep *dep = to_dwc3_ep(ep);
 	struct dwc3 *dwc = dep->dwc;
@@ -1370,23 +1377,27 @@ int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
 	bool disable_wb;
 	bool internal_mem;
 	bool ioc;
+	unsigned long flags;
 
 
+	spin_lock_irqsave(&dwc->lock, flags);
 	/* Save original ep ops for future restore*/
 	if (mdwc->original_ep_ops[dep->number]) {
 		dev_err(mdwc->dev,
 			"ep [%s,%d] already configured as msm endpoint\n",
 			ep->name, dep->number);
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return -EPERM;
 	}
 	mdwc->original_ep_ops[dep->number] = ep->ops;
 
 	/* Set new usb ops as we like */
-	new_ep_ops = kzalloc(sizeof(struct usb_ep_ops), gfp_flags);
+	new_ep_ops = kzalloc(sizeof(struct usb_ep_ops), GFP_ATOMIC);
 	if (!new_ep_ops) {
 		dev_err(mdwc->dev,
 			"%s: unable to allocate mem for new usb ep ops\n",
 			__func__);
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return -ENOMEM;
 	}
 	(*new_ep_ops) = (*ep->ops);
@@ -1394,8 +1405,10 @@ int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
 	new_ep_ops->gsi_ep_op = dwc3_msm_gsi_ep_op;
 	ep->ops = new_ep_ops;
 
-	if (!mdwc->dbm || !request || (dep->endpoint.ep_type == EP_TYPE_GSI))
+	if (!mdwc->dbm || !request || (dep->endpoint.ep_type == EP_TYPE_GSI)) {
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return 0;
+	}
 
 	/*
 	 * Configure the DBM endpoint if required.
@@ -1411,8 +1424,11 @@ int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
 	if (ret < 0) {
 		dev_err(mdwc->dev,
 			"error %d after calling dbm_ep_config\n", ret);
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return ret;
 	}
+
+	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	return 0;
 }
@@ -1433,12 +1449,15 @@ int msm_ep_unconfig(struct usb_ep *ep)
 	struct dwc3 *dwc = dep->dwc;
 	struct dwc3_msm *mdwc = dev_get_drvdata(dwc->dev->parent);
 	struct usb_ep_ops *old_ep_ops;
+	unsigned long flags;
 
+	spin_lock_irqsave(&dwc->lock, flags);
 	/* Restore original ep ops */
 	if (!mdwc->original_ep_ops[dep->number]) {
 		dev_dbg(mdwc->dev,
 			"ep [%s,%d] was not configured as msm endpoint\n",
 			ep->name, dep->number);
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return -EINVAL;
 	}
 	old_ep_ops = (struct usb_ep_ops	*)ep->ops;
@@ -1450,8 +1469,10 @@ int msm_ep_unconfig(struct usb_ep *ep)
 	 * Do HERE more usb endpoint un-configurations
 	 * which are specific to MSM.
 	 */
-	if (!mdwc->dbm || (dep->endpoint.ep_type == EP_TYPE_GSI))
+	if (!mdwc->dbm || (dep->endpoint.ep_type == EP_TYPE_GSI)) {
+		spin_unlock_irqrestore(&dwc->lock, flags);
 		return 0;
+	}
 
 	if (dep->busy_slot == dep->free_slot && list_empty(&dep->request_list)
 					 && list_empty(&dep->req_queued)) {
@@ -1471,6 +1492,8 @@ int msm_ep_unconfig(struct usb_ep *ep)
 				!dbm_reset_ep_after_lpm(mdwc->dbm))
 			dbm_event_buffer_config(mdwc->dbm, 0, 0, 0);
 	}
+
+	spin_unlock_irqrestore(&dwc->lock, flags);
 
 	return 0;
 }
@@ -1740,6 +1763,13 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event,
 
 		atomic_set(&dwc->in_lpm, 0);
 		break;
+	#if defined(CONFIG_UNKNOWN_CHARGER)
+	case DWC3_CONTROLLER_NOTIFY_RESET:
+		// ASUS_BSP "Add Unknown Charger Support"
+		dev_info(mdwc->dev, "DWC3_CONTROLLER_NOTIFY_RESET, should cancel unknown_chg_work\n");
+		cancel_delayed_work(&mdwc->unknown_chg_work);
+		break;
+	#endif
 	case DWC3_CONTROLLER_NOTIFY_OTG_EVENT:
 		dev_dbg(mdwc->dev, "DWC3_CONTROLLER_NOTIFY_OTG_EVENT received\n");
 		if (dwc->enable_bus_suspend) {
@@ -1749,7 +1779,7 @@ static void dwc3_msm_notify_event(struct dwc3 *dwc, unsigned event,
 		}
 		break;
 	case DWC3_CONTROLLER_SET_CURRENT_DRAW_EVENT:
-		dev_dbg(mdwc->dev, "DWC3_CONTROLLER_SET_CURRENT_DRAW_EVENT received\n");
+		dev_dbg(mdwc->dev, "DWC3_CONTROLLER_SET_CURRENT_DRAW_EVENT received(%d)\n", dwc->vbus_draw);
 		dwc3_msm_gadget_vbus_draw(mdwc, dwc->vbus_draw);
 		break;
 	case DWC3_CONTROLLER_RESTART_USB_SESSION:
@@ -1802,7 +1832,6 @@ static const char *chg_to_string(enum dwc3_chg_type chg_type)
 	case DWC3_DCP_CHARGER:		return "USB_DCP_CHARGER";
 	case DWC3_CDP_CHARGER:		return "USB_CDP_CHARGER";
 	case DWC3_PROPRIETARY_CHARGER:	return "USB_PROPRIETARY_CHARGER";
-	case DWC3_FLOATED_CHARGER:	return "USB_FLOATED_CHARGER";
 	default:			return "UNKNOWN_CHARGER";
 	}
 }
@@ -1839,7 +1868,7 @@ static int dwc3_msm_prepare_suspend(struct dwc3_msm *mdwc)
 	u32 reg = 0;
 
 	if ((mdwc->in_host_mode || (mdwc->vbus_active
-		&& mdwc->otg_state == OTG_STATE_B_PERIPHERAL))
+			&& mdwc->otg_state == OTG_STATE_B_SUSPEND))
 			&& dwc3_msm_is_superspeed(mdwc)) {
 		if (!atomic_read(&mdwc->in_p3)) {
 			dev_err(mdwc->dev, "Not in P3,aborting LPM sequence\n");
@@ -1989,7 +2018,9 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 	clk_disable_unprepare(mdwc->xo_clk);
 
 	/* Perform controller power collapse */
-	if (!mdwc->in_host_mode && (!mdwc->vbus_active || mdwc->in_restart)) {
+	if (!mdwc->in_host_mode && (!mdwc->vbus_active ||
+				    mdwc->otg_state == OTG_STATE_B_IDLE ||
+				    mdwc->in_restart)) {
 		mdwc->lpm_flags |= MDWC3_POWER_COLLAPSE;
 		dev_dbg(mdwc->dev, "%s: power collapse\n", __func__);
 		dwc3_msm_config_gdsc(mdwc, 0);
@@ -2022,8 +2053,8 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 	 * using HS_PHY_IRQ or SS_PHY_IRQ. Hence enable wakeup only in
 	 * case of host bus suspend and device bus suspend.
 	 */
-	if ((mdwc->vbus_active && mdwc->otg_state == OTG_STATE_B_PERIPHERAL)
-			|| mdwc->in_host_mode) {
+	if ((mdwc->vbus_active && mdwc->otg_state == OTG_STATE_B_SUSPEND)
+				|| mdwc->in_host_mode) {
 		enable_irq_wake(mdwc->hs_phy_irq);
 		enable_irq(mdwc->hs_phy_irq);
 		if (mdwc->ss_phy_irq) {
@@ -2178,9 +2209,11 @@ static void dwc3_ext_event_notify(struct dwc3_msm *mdwc)
 	if (mdwc->id_state == DWC3_ID_FLOAT) {
 		dev_info(mdwc->dev, "XCVR: ID set\n");
 		set_bit(ID, &mdwc->inputs);
+		mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
 	} else {
 		dev_info(mdwc->dev, "XCVR: ID clear\n");
 		clear_bit(ID, &mdwc->inputs);
+		mdwc->hs_phy->flags |= PHY_HOST_MODE;
 	}
 
 	if (mdwc->vbus_active && !mdwc->in_restart) {
@@ -2435,8 +2468,14 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 			break;
 
 		mdwc->vbus_active = val->intval;
-		if(!mdwc->vbus_active)
+		if(!mdwc->vbus_active){
             ASUSEvtlog("[USB] set_chg_mode: None\n");
+            #if defined(CONFIG_UNKNOWN_CHARGER)
+            // ASUS_BSP "Add Unknown Charger Support"
+            dev_dbg(mdwc->dev, "VBUS absent, cancel unknown_chg_work\n");
+			cancel_delayed_work(&mdwc->unknown_chg_work);
+			#endif
+        }
 		if (dwc->is_drd && !mdwc->in_restart) {
 			/*
 			 * Set debouncing delay to 120ms. Otherwise battery
@@ -2473,6 +2512,12 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
 		switch (psy->type) {
 		case POWER_SUPPLY_TYPE_USB:
 			mdwc->chg_type = DWC3_SDP_CHARGER;
+			evt_mode_string = "USB";
+			#if defined(CONFIG_UNKNOWN_CHARGER)
+			// ASUS_BSP "Add Unknown Charger Support"
+			dev_dbg(mdwc->dev, "SDP/CDP present, cancel unknown_chg_work\n");
+			cancel_delayed_work(&mdwc->unknown_chg_work);
+			#endif
 			break;
 		case POWER_SUPPLY_TYPE_USB_DCP:
 			mdwc->chg_type = DWC3_DCP_CHARGER;
@@ -2672,6 +2717,24 @@ static int dwc3_msm_get_clk_gdsc(struct dwc3_msm *mdwc)
 	return 0;
 }
 
+#if defined(CONFIG_UNKNOWN_CHARGER)
+// ASUS_BSP "Add Unknown Charger Support"
+static void asus_otg_chg_unknown_delay_work(struct work_struct *w)
+{
+	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm, unknown_chg_work.work);
+	if(test_bit(B_SESS_VLD, &mdwc->inputs)){
+		printk("%s: B_SESS_VLD is set, report unknown charger\n", __func__);
+		ASUSEvtlog("[USB] set_chg_mode: USB -> UNKNOWN_CHARGER\n");
+		mdwc->chg_type = DWC3_UNKNOWN_CHARGER;
+		mdwc->otg_state = OTG_STATE_B_IDLE;
+		schedule_delayed_work(&mdwc->sm_work,0);
+	} else {
+		printk("%s: B_SESS_VLD is not set, need re-check\n", __func__);
+		schedule_delayed_work(&mdwc->sm_work,0);
+	}
+}
+#endif
+
 static int dwc3_msm_probe(struct platform_device *pdev)
 {
 	struct device_node *node = pdev->dev.of_node, *dwc3_node;
@@ -2706,6 +2769,10 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	INIT_WORK(&mdwc->restart_usb_work, dwc3_restart_usb_work);
 	INIT_WORK(&mdwc->bus_vote_w, dwc3_msm_bus_vote_w);
 	INIT_DELAYED_WORK(&mdwc->sm_work, dwc3_otg_sm_work);
+	#if defined(CONFIG_UNKNOWN_CHARGER)
+	// ASUS_BSP "Add Unknown Charger Support"
+	INIT_DELAYED_WORK(&mdwc->unknown_chg_work, asus_otg_chg_unknown_delay_work);
+	#endif
 
 	mdwc->dwc3_wq = alloc_ordered_workqueue("dwc3_wq", 0);
 	if (!mdwc->dwc3_wq) {
@@ -2927,6 +2994,9 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	mdwc->disable_host_mode_pm = of_property_read_bool(node,
 				"qcom,disable-host-mode-pm");
 
+	mdwc->detect_dpdm_floating = of_property_read_bool(node,
+				"qcom,detect-dpdm-floating");
+
 	dwc3_set_notifier(&dwc3_msm_notify_event);
 
 	/* Assumes dwc3 is the only DT child of dwc3-msm */
@@ -3139,8 +3209,10 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	int ret = 0;
 
-	if (!dwc->xhci)
+	if (!dwc->xhci) {
+		mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
 		return -EINVAL;
+	}
 
 	/*
 	 * The vbus_reg pointer could have multiple values
@@ -3155,6 +3227,7 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 				PTR_ERR(mdwc->vbus_reg) == -EPROBE_DEFER) {
 			/* regulators may not be ready, so retry again later */
 			mdwc->vbus_reg = NULL;
+			mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
 			return -EPROBE_DEFER;
 		}
 	}
@@ -3387,6 +3460,26 @@ psy_error:
 	return -ENXIO;
 }
 
+static void dwc3_check_float_lines(struct dwc3_msm *mdwc)
+{
+	int dpdm;
+
+	dev_info(mdwc->dev, "%s: Check linestate\n", __func__);
+	dwc3_msm_gadget_vbus_draw(mdwc, 0);
+
+	/* Get linestate with Idp_src enabled */
+	dpdm = usb_phy_dpdm_with_idp_src(mdwc->hs_phy);
+	if (dpdm == 0x2) {
+		/* DP is HIGH = lines are floating */
+		mdwc->chg_type = DWC3_PROPRIETARY_CHARGER;
+		mdwc->otg_state = OTG_STATE_B_IDLE;
+		pm_runtime_put_sync(mdwc->dev);
+		dbg_event(0xFF, "FLT psync",
+				atomic_read(&mdwc->dev->power.usage_count));
+	} else if (dpdm) {
+		dev_dbg(mdwc->dev, "%s:invalid linestate:%x\n", __func__, dpdm);
+	}
+}
 
 static void dwc3_initialize(struct dwc3_msm *mdwc)
 {
@@ -3446,7 +3539,6 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	struct dwc3_msm *mdwc = container_of(w, struct dwc3_msm, sm_work.work);
 	struct dwc3 *dwc = NULL;
 	bool work = 0;
-	u8 dcd = 0;
 	int ret = 0;
 	unsigned long delay = 0;
 	const char *state;
@@ -3460,7 +3552,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	}
 
 	state = usb_otg_state_string(mdwc->otg_state);
-	dev_dbg(mdwc->dev, "%s state\n", state);
+	dev_info(mdwc->dev, "%s state\n", state);
 	dbg_event(0xFF, state, 0);
 
 	/* Check OTG state */
@@ -3507,31 +3599,17 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				pm_runtime_enable(mdwc->dev);
 				pm_runtime_get_noresume(mdwc->dev);
 				dwc3_initialize(mdwc);
-				// ASUS_BSP "Add DCD support"
-				pr_debug("!!RUNNING DCD\n");
-				dwc3_msm_gadget_vbus_draw(mdwc, 0);
-				msleep(dcd_delay_ms);
-				dcd = qusb_phy_run_dcd(mdwc->hs_phy);
-				if (dcd == 0x1) {
-					mdwc->chg_type = DWC3_PROPRIETARY_CHARGER;
-					pr_debug("[USB] DWC3_PROPRIETARY_CHARGER\n");
-					ASUSEvtlog("[USB] set_chg_mode: ASUS_AC\n");
-					pm_runtime_put_sync(mdwc->dev);
-					dbg_event(0xFF, "BDCD-F psync",
-					atomic_read(&mdwc->dev->power.usage_count));
-					mdwc->otg_state = OTG_STATE_B_IDLE;
-					work = 1;
-					break;
-				} else if (dcd == 0x5) {
-					mdwc->chg_type = DWC3_DCP_CHARGER;
-					pr_debug("[USB] DWC3_DCP_CHARGER\n");
-					ASUSEvtlog("[USB] set_chg_mode: ASUS_AC\n");
-					pm_runtime_put_sync(mdwc->dev);
-					dbg_event(0xFF, "BDCD-D psync",
-					atomic_read(&mdwc->dev->power.usage_count));
-					mdwc->otg_state = OTG_STATE_B_IDLE;
-					work = 1;
-					break;
+				#if defined(CONFIG_UNKNOWN_CHARGER)
+				// ASUS_BSP "Add Unknown Charger Support"
+				printk("[USB] DWC3_SDP_CHARGER (OTG_STATE_UNDEFINED), should queue UNKNOWN work.\n");
+				queue_delayed_work(mdwc->dwc3_wq,
+						&mdwc->unknown_chg_work, (4000 * HZ / 1000));
+				#endif
+				/* check dp/dm for SDP & runtime_put if !SDP */
+				if (mdwc->detect_dpdm_floating) {
+					dwc3_check_float_lines(mdwc);
+					if (mdwc->chg_type != DWC3_SDP_CHARGER)
+						break;
 				}
 				dwc3_otg_start_peripheral(mdwc, 1);
 				mdwc->otg_state = OTG_STATE_B_PERIPHERAL;
@@ -3568,6 +3646,13 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		} else if (test_bit(B_SESS_VLD, &mdwc->inputs)) {
 			dev_info(mdwc->dev, "b_sess_vld\n");
 			switch (mdwc->chg_type) {
+			#if defined(CONFIG_UNKNOWN_CHARGER)
+			// ASUS_BSP "Add Unknown Charger Support"
+			case DWC3_UNKNOWN_CHARGER:
+				dev_info(mdwc->dev, "Unknown Charger detect ( ssusb wakelock hold in case PC late reset )\n");
+				unknownChgNotify();
+				break;
+			#endif
 			case DWC3_DCP_CHARGER:
 			case DWC3_PROPRIETARY_CHARGER:
 				dev_dbg(mdwc->dev, "lpm, DCP charger\n");
@@ -3589,34 +3674,18 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				dbg_event(0xFF, "CHG gsync",
 					atomic_read(
 						&mdwc->dev->power.usage_count));
-				// ASUS_BSP "Add DCD support"
-				pr_debug("!!RUNNING DCD\n");
-				dwc3_msm_gadget_vbus_draw(mdwc, 0);
-				msleep(dcd_delay_ms);
-				dcd = qusb_phy_run_dcd(mdwc->hs_phy);
-				if (dcd == 0x1) {
-					mdwc->chg_type = DWC3_PROPRIETARY_CHARGER;
-					pr_debug("[USB] DWC3_PROPRIETARY_CHARGER\n");
-					ASUSEvtlog("[USB] set_chg_mode: ASUS_AC\n");
-					pm_runtime_put_sync(mdwc->dev);
-					dbg_event(0xFF, "BDCD-F psync",
-					atomic_read(&mdwc->dev->power.usage_count));
-					mdwc->otg_state = OTG_STATE_B_IDLE;
-					work = 1;
-					break;
-				} else if (dcd == 0x5) {
-					mdwc->chg_type = DWC3_DCP_CHARGER;
-					pr_debug("[USB] DWC3_DCP_CHARGER\n");
-					ASUSEvtlog("[USB] set_chg_mode: ASUS_AC\n");
-					pm_runtime_put_sync(mdwc->dev);
-					dbg_event(0xFF, "BDCD-D psync",
-					atomic_read(&mdwc->dev->power.usage_count));
-					mdwc->otg_state = OTG_STATE_B_IDLE;
-					work = 1;
-					break;
+				#if defined(CONFIG_UNKNOWN_CHARGER)
+				// ASUS_BSP "Add Unknown Charger Support"
+				printk("[USB] DWC3_SDP_CHARGER (OTG_STATE_B_IDLE), should queue UNKNOWN work.\n");
+				queue_delayed_work(mdwc->dwc3_wq,
+						&mdwc->unknown_chg_work, (4000 * HZ / 1000));
+				#endif
+				/* check dp/dm for SDP & runtime_put if !SDP */
+				if (mdwc->detect_dpdm_floating && mdwc->chg_type == DWC3_SDP_CHARGER) {
+					dwc3_check_float_lines(mdwc);
+					if (mdwc->chg_type != DWC3_SDP_CHARGER)
+						break;
 				}
-				pr_debug("[USB] SDP charger\n");
-				ASUSEvtlog("[USB] set_chg_mode: USB\n");
 				dwc3_otg_start_peripheral(mdwc, 1);
 				mdwc->otg_state = OTG_STATE_B_PERIPHERAL;
 				work = 1;

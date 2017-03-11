@@ -289,6 +289,32 @@ EXPORT_SYMBOL(wcnss_irq_flag_function_wdi);
 
 //ASUS_BSP--- "for wlan wakeup trace"
 
+//ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
+static int rmnet_irq_flag_rx = 0;
+int rmnet_irq_flag_function_rx(void)
+{
+    if( rmnet_irq_flag_rx == 1 ) {
+        rmnet_irq_flag_rx = 0;
+        return 1;
+    }
+
+    return 0;
+}
+EXPORT_SYMBOL(rmnet_irq_flag_function_rx);
+
+static int rmnet_irq_flag_rx_260 = 0; 
+int rmnet_irq_flag_function_rx_260(void)
+{
+    if( rmnet_irq_flag_rx_260 == 1 ) {
+        rmnet_irq_flag_rx_260 = 0; 
+        return 1;
+    }    
+
+    return 0;
+}
+EXPORT_SYMBOL(rmnet_irq_flag_function_rx_260);
+//ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
+
 static void gic_show_resume_irq(struct gic_chip_data *gic)
 {
 	unsigned int i;
@@ -342,6 +368,21 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		    wcnss_irq_flag_wdi = 1;
 		}
 		//ASUS_BSP--- "for wlan wakeup trace"
+
+                //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+                if( (i + gic->irq_offset) == 57 ){
+                    rmnet_irq_flag_rx = 1;
+                    //printk("%s: [data] Johnny test\n", __func__);
+                }
+                //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+
+                //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
+                if( (i + gic->irq_offset) == 260 ){
+                    rmnet_irq_flag_rx_260 = 1;
+                    //printk("%s: [data] Johnny test\n", __func__);
+                }
+                //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
+
 
 	}
 	//[+++][Power]Save maxmum count to 8

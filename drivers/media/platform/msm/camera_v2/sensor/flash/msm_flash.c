@@ -1540,6 +1540,84 @@ static long msm_flash_subdev_fops_ioctl(struct file *file,
 	return video_usercopy(file, cmd, arg, msm_flash_subdev_do_ioctl);
 }
 #endif
+//ASUS_BSP +++ Deka "implement Zenflash control node"
+#define	ZENFLASH_PROC_FILE	"driver/asus_flash_trigger_time"
+#define MAX_ZENFLASH_CURRENT 800
+static struct proc_dir_entry *zenflash_proc_file;
+
+static int zenflash_proc_read(struct seq_file *buf, void *v)
+{
+    return 0;
+}
+
+static int zenflash_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, zenflash_proc_read, NULL);
+}
+
+static ssize_t zenflash_proc_write(struct file *filp, const char __user *buf, size_t count, loff_t *ppos)
+{
+	int now_duration_value = -1;
+	int rc = 0, len, i;
+	struct msm_flash_ctrl_t *flash_ctrl = g_flash_ctrl;
+	struct msm_flash_cfg_data_t flash_data;
+	struct msm_flash_init_info_t flash_init_info;
+
+	len=(count > DBG_TXT_BUF_SIZE-1)?(DBG_TXT_BUF_SIZE-1):(count);
+	if (copy_from_user(debugTxtBuf,buf,len))
+			return -EFAULT;
+	debugTxtBuf[len]=0; //add string end
+	sscanf(debugTxtBuf, "%d", &now_duration_value);
+
+	*ppos=len;
+	
+
+	mutex_lock(flash_ctrl->flash_mutex);
+	if (now_duration_value<0 ||now_duration_value>80) {
+		pr_err("[Zenflash] now_duration_value = %d set to 80\n",now_duration_value);
+              now_duration_value = 80;
+	}
+
+	flash_data.ctrl_state = CTRL_FRONT_LED1_OFF_REAR_LED_OFF_ON;
+	flash_data.cfg.flash_init_info = &flash_init_info;
+	flash_init_info.flash_driver_type = flash_ctrl->flash_driver_type;
+	for (i = 0; i < MAX_LED_TRIGGERS; i++) {
+		flash_data.flash_current[i] = MAX_ZENFLASH_CURRENT;
+		flash_data.flash_duration[i] = MAX_FLASH_DURATION;
+	}
+	pr_err("[Zenflash]flash duration value=%d current %d \n", now_duration_value,MAX_ZENFLASH_CURRENT);
+
+	if(flash_ctrl->flash_state == MSM_CAMERA_FLASH_INIT) {
+		rc = msm_flash_high(flash_ctrl, &flash_data);
+		if (rc < 0) {
+			pr_err("%s:%d camera_flash_high failed rc = %d",
+				__func__, __LINE__, rc);
+			mutex_unlock(flash_ctrl->flash_mutex);
+			return rc;
+		}
+              usleep_range(now_duration_value*1000,now_duration_value*1001);
+              rc = msm_flash_off(flash_ctrl, &flash_data);
+		if (rc < 0) {
+			pr_err("%s:%d camera_flash_off failed rc = %d",
+				__func__, __LINE__, rc);
+			mutex_unlock(flash_ctrl->flash_mutex);
+			return rc;
+		}
+        
+	}
+	mutex_unlock(flash_ctrl->flash_mutex);
+	return len;
+}
+
+static const struct file_operations zenflash_fops = {
+	.owner = THIS_MODULE,
+	.open = zenflash_proc_open,
+	.read = seq_read,
+	.write = zenflash_proc_write,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+//ASUS_BSP --- Deka "implement Zenflash control node"
 //ASUS_BSP +++ PJ "implement asus_flash_brightness control node"
 #define	FLASH_BRIGHTNESS_PROC_FILE	"driver/asus_flash_brightness"
 static struct proc_dir_entry *flash_brightness_proc_file;
@@ -1588,7 +1666,7 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 		flash_data.flash_current[i] = flash_ctrl->flash_max_current[i];
 		flash_data.flash_duration[i] = 1280;
 	}
-	if(flash_ctrl->flash_state != MSM_CAMERA_FLASH_INIT ) {
+	if(flash_ctrl->flashlight_state != MSM_CAMERA_FLASH_INIT ) {
 		rc = msm_flash_init(flash_ctrl, &flash_data);
 		if (rc < 0) {
 			pr_err("%s:%d camera_flash_init failed rc = %d",
@@ -1603,19 +1681,20 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 			mutex_unlock(flash_ctrl->flash_mutex);
 			return rc;
 		}
+              flash_ctrl->flashlight_state = MSM_CAMERA_FLASH_INIT;
 	}
 
 	if (set_val > MAX_FLASHLIGHT_CURRENT) {
 		flash_data.flash_current[0] = MAX_FLASHLIGHT_CURRENT;
 		flash_data.flash_current[1] = MAX_FLASHLIGHT_CURRENT;
-		if(flash_ctrl->flash_state == MSM_CAMERA_FLASH_INIT) {
-			rc = msm_flash_off(flash_ctrl, &flash_data);
+		if(flash_ctrl->flashlight_state == MSM_CAMERA_FLASH_INIT) {
+			/*rc = msm_flash_off(flash_ctrl, &flash_data);
 			if (rc < 0) {
 				pr_err("%s:%d camera_flash_off failed rc = %d",
 					__func__, __LINE__, rc);
 				mutex_unlock(flash_ctrl->flash_mutex);
 				return rc;
-			}
+			}*/
 			rc = msm_flash_low(flash_ctrl, &flash_data);
 			if (rc < 0) {
 				pr_err("%s:%d camera_flash_low failed rc = %d",
@@ -1625,7 +1704,7 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 			}
 		}
 	} else if (set_val <= 0) {
-		if(flash_ctrl->flash_state == MSM_CAMERA_FLASH_INIT) {
+		if(flash_ctrl->flashlight_state == MSM_CAMERA_FLASH_INIT) {
 			rc = msm_flash_off(flash_ctrl, NULL);
 			if (rc < 0) {
 				pr_err("%s:%d camera_flash_off failed rc = %d",
@@ -1640,19 +1719,20 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 				mutex_unlock(flash_ctrl->flash_mutex);
 				return rc;
 			}
+                    flash_ctrl->flashlight_state = MSM_CAMERA_FLASH_RELEASE;
 		}
 	} else if (0 < set_val && set_val < (MAX_FLASHLIGHT_CURRENT + 1)) {
 		pr_err(KERN_INFO "[AsusFlashBrightness] current now in 1~%d", MAX_FLASHLIGHT_CURRENT);
 			flash_data.flash_current[0] = set_val;
 			flash_data.flash_current[1] = set_val;
-			if(flash_ctrl->flash_state == MSM_CAMERA_FLASH_INIT) {
-				rc = msm_flash_off(flash_ctrl, &flash_data);
+			if(flash_ctrl->flashlight_state == MSM_CAMERA_FLASH_INIT) {
+				/*rc = msm_flash_off(flash_ctrl, &flash_data);
 				if (rc < 0) {
 					pr_err("%s:%d camera_flash_off failed rc = %d",
 						__func__, __LINE__, rc);
 					mutex_unlock(flash_ctrl->flash_mutex);
 					return rc;
-				}
+				}*/
 				rc = msm_flash_low(flash_ctrl, &flash_data);
 				if (rc < 0) {
 					pr_err("%s:%d camera_flash_low failed rc = %d",
@@ -1662,7 +1742,7 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 				}
 			}
 	} else {
-		if(flash_ctrl->flash_state == MSM_CAMERA_FLASH_INIT)
+		if(flash_ctrl->flashlight_state == MSM_CAMERA_FLASH_INIT)
 			rc = msm_flash_release(flash_ctrl);
 		if (rc < 0) {
 			pr_err("%s:%d camera_flash_release failed rc = %d",
@@ -1670,6 +1750,7 @@ static ssize_t msm_flash_brightness_proc_write(struct file *filp, const char __u
 			mutex_unlock(flash_ctrl->flash_mutex);
 			return rc;
 		}
+              flash_ctrl->flashlight_state = MSM_CAMERA_FLASH_RELEASE;
 		mutex_unlock(flash_ctrl->flash_mutex);
 		return -1;
 	}
@@ -1925,6 +2006,15 @@ static void create_proc_file(void)
     } else {
     	pr_err("%s flash_brightness_proc_file failed!\n", __func__);
     }
+    //ASUS_BSP +++ Deka "implement Zenflash control node"
+    zenflash_proc_file = proc_create(ZENFLASH_PROC_FILE, 0666, NULL, &zenflash_fops);
+    if (zenflash_proc_file) {
+    	pr_err("%s zenflash_proc_file sucessed!\n", __func__);
+    } else {
+    	pr_err("%s zenflash_proc_file failed!\n", __func__);
+    }
+    //ASUS_BSP --- Deka "implement Zenflash control node"
+    
 }
 //ASUS_BSP --- PJ "create flash control node"
 static int32_t msm_flash_platform_probe(struct platform_device *pdev)
@@ -1958,6 +2048,7 @@ static int32_t msm_flash_platform_probe(struct platform_device *pdev)
 	}
 
 	flash_ctrl->flash_state = MSM_CAMERA_FLASH_RELEASE;
+       flash_ctrl->flashlight_state = MSM_CAMERA_FLASH_RELEASE;
 	flash_ctrl->power_info.dev = &flash_ctrl->pdev->dev;
 	flash_ctrl->flash_device_type = MSM_CAMERA_PLATFORM_DEVICE;
 	flash_ctrl->flash_mutex = &msm_flash_mutex;

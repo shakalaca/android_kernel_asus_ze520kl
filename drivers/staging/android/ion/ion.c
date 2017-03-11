@@ -406,13 +406,22 @@ static void ion_handle_get(struct ion_handle *handle)
 	kref_get(&handle->ref);
 }
 
+static int ion_handle_put_nolock(struct ion_handle *handle)
+{
+	int ret;
+
+	ret = kref_put(&handle->ref, ion_handle_destroy);
+
+	return ret;
+}
+
 int ion_handle_put(struct ion_handle *handle)
 {
 	struct ion_client *client = handle->client;
 	int ret;
 
 	mutex_lock(&client->lock);
-	ret = kref_put(&handle->ref, ion_handle_destroy);
+	ret = ion_handle_put_nolock(handle);
 	mutex_unlock(&client->lock);
 
 	return ret;
@@ -436,18 +445,28 @@ static struct ion_handle *ion_handle_lookup(struct ion_client *client,
 	return ERR_PTR(-EINVAL);
 }
 
+static struct ion_handle *ion_handle_get_by_id_nolock(struct ion_client *client,
+						int id)
+{
+	struct ion_handle *handle;
+
+	handle = idr_find(&client->idr, id);
+	if (handle)
+		ion_handle_get(handle);
+
+	return handle ? handle : ERR_PTR(-EINVAL);
+}
+
 struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
 						int id)
 {
 	struct ion_handle *handle;
 
 	mutex_lock(&client->lock);
-	handle = idr_find(&client->idr, id);
-	if (handle)
-		ion_handle_get(handle);
+	handle = ion_handle_get_by_id_nolock(client, id);
 	mutex_unlock(&client->lock);
 
-	return handle ? handle : ERR_PTR(-EINVAL);
+	return handle;
 }
 
 static bool ion_handle_validate(struct ion_client *client,
@@ -596,21 +615,27 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 }
 EXPORT_SYMBOL(ion_alloc);
 
-void ion_free(struct ion_client *client, struct ion_handle *handle)
+static void ion_free_nolock(struct ion_client *client, struct ion_handle *handle)
 {
 	bool valid_handle;
 
 	BUG_ON(client != handle->client);
 
-	mutex_lock(&client->lock);
 	valid_handle = ion_handle_validate(client, handle);
 	if (!valid_handle) {
 		WARN(1, "%s: invalid handle passed to free.\n", __func__);
-		mutex_unlock(&client->lock);
 		return;
 	}
+	ion_handle_put_nolock(handle);
+}
+
+void ion_free(struct ion_client *client, struct ion_handle *handle)
+{
+	BUG_ON(client != handle->client);
+
+	mutex_lock(&client->lock);
+	ion_free_nolock(client, handle);
 	mutex_unlock(&client->lock);
-	ion_handle_put(handle);
 }
 EXPORT_SYMBOL(ion_free);
 
@@ -1477,11 +1502,15 @@ static long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	{
 		struct ion_handle *handle;
 
-		handle = ion_handle_get_by_id(client, data.handle.handle);
-		if (IS_ERR(handle))
+		mutex_lock(&client->lock);
+		handle = ion_handle_get_by_id_nolock(client, data.handle.handle);
+		if (IS_ERR(handle)) {
+			mutex_unlock(&client->lock);
 			return PTR_ERR(handle);
-		ion_free(client, handle);
-		ion_handle_put(handle);
+		}
+		ion_free_nolock(client, handle);
+		ion_handle_put_nolock(handle);
+		mutex_unlock(&client->lock);
 		break;
 	}
 	case ION_IOC_SHARE:
@@ -1925,6 +1954,7 @@ static int ion_used_proc_read(struct seq_file *s, void *v)
 	size_t total_size = 0;
 	size_t total_orphaned_size = 0;
 
+	/*
 	pr_info("%16.s %16.s %16.s\n", "client", "pid", "size");
 	pr_info("----------------------------------------------------\n");
 
@@ -1948,6 +1978,7 @@ static int ion_used_proc_read(struct seq_file *s, void *v)
 	up_read(&dev->lock);
 	pr_info("----------------------------------------------------\n");
 	pr_info("orphaned allocations (info is from last known client):\n");
+	*/
 
 	mutex_lock(&dev->buffer_lock);
 	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
@@ -1955,21 +1986,20 @@ static int ion_used_proc_read(struct seq_file *s, void *v)
 		if (buffer->heap->id != heap->id)
 			continue;
 		total_size += buffer->size;
+
 		if (!buffer->handle_count) {
+			/*
 			pr_info("%16.s %16u %16zu %d %d\n",
 				buffer->task_comm, buffer->pid,
 				buffer->size, buffer->kmap_cnt,
 				atomic_read(&buffer->ref.refcount));
+			*/
 			total_orphaned_size += buffer->size;
 		}
 	}
 	mutex_unlock(&dev->buffer_lock);
-	pr_info("----------------------------------------------------\n");
-	pr_info("%16.s %16zu\n", "total orphaned", total_orphaned_size);
-	pr_info("%16.s %16zu\n", "total ", total_size);
-	if (heap->flags & ION_HEAP_FLAG_DEFER_FREE)
-		pr_info("%16.s %16zu\n", "deferred free", heap->free_list_size);
-	pr_info("----------------------------------------------------\n");
+
+	pr_info("[ION] total orphaned = %zu, total = %zu\n", total_orphaned_size, total_size);
 
 	return seq_printf(s, "%lu\n", total_size);
 }

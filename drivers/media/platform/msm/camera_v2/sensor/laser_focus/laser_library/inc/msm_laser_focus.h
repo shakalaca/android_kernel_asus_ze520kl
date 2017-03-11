@@ -267,6 +267,11 @@ struct msm_laser_focus {
 #define DEVICE_IOCTL_SET_K	"driver/LaserFocus_setK"
 #define DEVICE_IOCTL_PRODUCT_FAMILY	"driver/LaserFocus_ProductFamily"
 #define  DEVICE_WHO_AM_I		"driver/LaserFocus_who_am_i"
+#define DEVICE_HPTG_HW		"driver/LaserFocus_HPTG_hw"
+#define DEVICE_DATA_POSITION	"driver/LaserFocus_data_position"
+#define	DEVICE_CSC_MODE	"driver/LaserFocus_CSCmode"
+
+
 
 /* Right of laser focus control file*/
 #define	STATUS_PROC_FILE_MODE 0660	/* Status right */

@@ -49,6 +49,9 @@
 #define TYPEC_DFP_STATUS_REG(base)	(base +	0x09)
 #define VALID_DFP_MASK			TYPEC_MASK(6, 4)
 
+#define TYPEC_SW_CTL_REG(base)		(base +	0x52)	//Austin_T : register 0xBF52
+#define CABLE_RP_CONNECT_THRESHOLD_BIT	BIT(1)
+
 #define TYPEC_STD_MA			500		//Austin_T:900>>500
 #define TYPEC_MED_MA			1400	//1500>>1400
 #define TYPEC_HIGH_MA			1910	//3000>>1910
@@ -114,6 +117,56 @@ static int qpnp_typec_read(struct qpnp_typec_chip *chip, u8 *val, u16 addr,
 
 	return 0;
 }
+
+//ASUS BSP Austin_T : Add qpnp_typec_write function +++
+static int qpnp_typec_write(struct qpnp_typec_chip *chip, u8 *val,
+			u16 addr, int count)
+{
+	int rc = 0;
+	struct spmi_device *spmi = chip->spmi;
+
+	if (addr == 0) {
+		dev_err(chip->dev, "addr cannot be zero addr=0x%02x sid=0x%02x rc=%d\n",
+			addr, spmi->sid, rc);
+		return -EINVAL;
+	}
+
+	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, addr, val, count);
+	if (rc) {
+		dev_err(chip->dev, "write failed addr=0x%02x sid=0x%02x rc=%d\n",
+			addr, spmi->sid, rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+static int qpnp_typec_masked_write_raw(struct qpnp_typec_chip *chip, u16 base, u8 mask,
+									u8 val)
+{
+	int rc;
+	u8 reg;
+
+	rc = qpnp_typec_read(chip, &reg, base, 1);
+	if (rc) {
+		dev_err(chip->dev, "spmi read failed: addr=%03X, rc=%d\n",
+				base, rc);
+		return rc;
+	}
+
+	reg &= ~mask;
+	reg |= val & mask;
+
+	rc = qpnp_typec_write(chip, &reg, base, 1);
+	if (rc) {
+		dev_err(chip->dev, "spmi write failed: addr=%03X, rc=%d\n",
+				base, rc);
+		return rc;
+	}
+
+	return 0;
+}
+//ASUS BSP Austin_T : Add qpnp_typec_write function ---
 
 static int set_property_on_battery(struct qpnp_typec_chip *chip,
 				enum power_supply_property prop)
@@ -677,6 +730,13 @@ static int qpnp_typec_probe(struct spmi_device *spmi)
 		pr_err("failed to request irqs rc=%d\n", rc);
 		return rc;
 	}
+
+//ASUS BSP Austin_T : Set CABLE_RP_CONNECT_THRESHOLD 0.6V +++
+	rc = qpnp_typec_masked_write_raw(chip, TYPEC_SW_CTL_REG(chip->base),
+		CABLE_RP_CONNECT_THRESHOLD_BIT, CABLE_RP_CONNECT_THRESHOLD_BIT);
+	if (rc < 0)
+		pr_err("Couldn't set CABLE_RP_CONNECT_THRESHOLD rc = %d\n", rc);
+//ASUS BSP Austin_T : Set CABLE_RP_CONNECT_THRESHOLD 0.6V ---
 
 	pr_info("TypeC successfully probed state=%d CC-line-state=%d\n",
 			chip->typec_state, chip->cc_line_state);

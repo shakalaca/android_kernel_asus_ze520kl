@@ -80,9 +80,9 @@ MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
 extern void dpNotify(void);
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 static int diag_enable = 0;
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 extern int getMACConnect(void);
 extern int resetHostTypeChanged(void);
 extern int getHostTypeChanged(void);
@@ -546,13 +546,24 @@ static void android_disable(struct android_dev *dev)
 	struct android_configuration *conf;
 
 	if (dev->disable_depth++ == 0) {
-		/* Cancel pending control requests */
-		usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
+		if (gadget_is_dwc3(cdev->gadget)) {
+			/* Cancel pending control requests */
+			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
 
-		list_for_each_entry(conf, &dev->configs, list_item)
-			usb_remove_config(cdev, &conf->usb_config);
-		usb_gadget_disconnect(cdev->gadget);
-		dev->last_disconnect = ktime_get();
+			list_for_each_entry(conf, &dev->configs, list_item)
+				usb_remove_config(cdev, &conf->usb_config);
+			usb_gadget_disconnect(cdev->gadget);
+			dev->last_disconnect = ktime_get();
+		} else {
+			usb_gadget_disconnect(cdev->gadget);
+			dev->last_disconnect = ktime_get();
+
+			/* Cancel pnding control requests */
+			usb_ep_dequeue(cdev->gadget->ep0, cdev->req);
+
+			list_for_each_entry(conf, &dev->configs, list_item)
+				usb_remove_config(cdev, &conf->usb_config);
+		}
 	}
 }
 
@@ -3408,15 +3419,16 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	}
 
 	strlcpy(buf, buff, sizeof(buf));
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
-	if(diag_enable){
+//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
+	if(diag_enable == 1){
 		strlcpy(buf, "diag,serial,rmnet,adb", sizeof("diag,serial,rmnet,adb"));
-	}
-	else{
+	}else if (diag_enable == 2){
+		strlcpy(buf, "rndis,serial,diag,adb", sizeof("rndis,serial,diag,adb"));
+	}else{
 		strlcpy(buf, buff, sizeof(buf));
 	}
 
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 	b = strim(buf);
 	
 	printk("[USB] func:%s\n",buf);
@@ -3536,12 +3548,14 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		 * pull-up is enabled immediately. The enumeration is
 		 * reliable with 100 msec delay.
 		 */
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
-		if(diag_enable){
+		if(diag_enable == 1){
 			cdev->desc.idVendor = __constant_cpu_to_le16(0x05C6);
 			cdev->desc.idProduct = __constant_cpu_to_le16(0x9091);
 		}
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+		if(diag_enable == 2){
+			cdev->desc.idVendor = __constant_cpu_to_le16(0x05C6);
+			cdev->desc.idProduct = __constant_cpu_to_le16(0x90B6);
+		}
 		list_for_each_entry(conf, &dev->configs, list_item)
 			list_for_each_entry(f_holder, &conf->enabled_functions,
 						enabled_list) {
@@ -3633,7 +3647,7 @@ out:
 	return snprintf(buf, PAGE_SIZE, "%s\n", state);
 }
 
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 static ssize_t diag_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -3664,7 +3678,7 @@ static ssize_t serial_store(struct device *pdev, struct device_attribute *attr,
 	}
 	return size;
 }
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 
 #define ANDROID_DEV_ATTR(field, format_string)				\
 static ssize_t								\
@@ -3766,9 +3780,9 @@ static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 		remote_wakeup_show, remote_wakeup_store);
 
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 static DEVICE_ATTR(diag, S_IRUGO | S_IWUSR, diag_show, diag_store);
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_idVendor,
@@ -3783,9 +3797,9 @@ static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_functions,
 	&dev_attr_enable,
 	&dev_attr_pm_qos,
-//ASUS_BSP+++ "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP+++ "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 	&dev_attr_diag,
-//ASUS_BSP--- "[USB][NA][Spec] add diag enable support in kernel"
+//ASUS_BSP--- "[USB][NA][Spec] add diag/diag_rndis enable support in kernel"
 	&dev_attr_up_pm_qos_sample_sec,
 	&dev_attr_down_pm_qos_sample_sec,
 	&dev_attr_up_pm_qos_threshold,

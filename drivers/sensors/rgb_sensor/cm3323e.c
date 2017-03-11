@@ -36,6 +36,11 @@
 #include "cm3323e.h"
 #include "lightsensor.h"
 
+#ifdef CONFIG_I2C_STRESS_TEST
+#include <linux/i2c_testcase.h>
+#define I2C_TEST_CM3323E_FAIL (-1)
+#endif
+
 #define ASUS_RGB_SENSOR_DATA_SIZE	5
 #define ASUS_RGB_SENSOR_NAME_SIZE	32
 #define ASUS_RGB_SENSOR_IOC_MAGIC                      ('C')	///< RGB sensor ioctl magic number 
@@ -319,6 +324,7 @@ static void rgbSensor_setDelay(void)
 void rgbSensor_workAround(void)
 {
 	_cm3323e_I2C_Write_Word(CM3323E_ADDR, CM3323E_RESERVE, 0);
+	RGB_DBG("%s: done\n", __func__);
 }
 
 static int rgbSensor_doEnable(bool enabled)
@@ -451,7 +457,7 @@ static int get_rgb_data(int rgb_data, u16 *pdata, bool l_needDelay)
 		break;
 	default:
 		RGB_DBG_E("%s: unknown cmd(%d)\n", __func__, rgb_data);
-		ret = -1;
+		ret = -2;
 		goto end;
 	}
 	if (l_needDelay) {
@@ -538,13 +544,15 @@ static bool rgbSensor_checkI2C(void)
 		RGB_DBG_E("%s: fail\n", __func__);
 		return false;
 	} else{
+		RGB_DBG("%s: %u\n", __func__, adc_data);
 		return true;
 	}
 }
-static void rgbSensor_itSet_ms(int input_ms)
+static int rgbSensor_itSet_ms(int input_ms)
 {
 	static uint16_t l_count = 0;
 	int it_time;
+	int ret = 0;
 	if (input_ms < 80) {
 		it_time = 0;
 	} else if (input_ms < 160) {
@@ -565,10 +573,12 @@ static void rgbSensor_itSet_ms(int input_ms)
 	l_count++;
 	cm_lp_info->it_time = it_time;
 	if (cm_lp_info->als_enable == 1) {
-		_cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CFG_IT_MASK, it_time << 4);
+		ret = _cm3323e_I2C_Mask_Write_Word(CM3323E_ADDR, CM3323E_CONF, CFG_IT_MASK, it_time << 4);
 	} else{
+		ret = -1;
 		RGB_DBG("%s: write config - it time = %d, it set = %d\n", __func__, input_ms, it_time);
 	}
+	return ret;
 }
 /*+++BSP David proc rgbSensor_dump Interface+++*/
 static int rgbSensor_dump_proc_read(struct seq_file *buf, void *v)
@@ -589,6 +599,7 @@ static void create_rgbSensor_dump_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_dump_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_dump", 0444, NULL, &proc_fops);
 
@@ -621,6 +632,7 @@ static void create_rgbSensor_status_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_status_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_status", 0444, NULL, &proc_fops);
 	if (!proc_file) {
@@ -663,6 +675,7 @@ static void create_asusRgbCalibEnable_proc_file(void)
 		.open =  asusRgbCalibEnable_proc_open,
 		.write = asusRgbCalibEnable_proc_write,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbCalibEnable", 0664, NULL, &proc_fops);
 
@@ -716,6 +729,7 @@ static void create_asusRgbDebug_proc_file(void)
 		.open =  asusRgbDebug_proc_open,
 		.write = asusRgbDebug_proc_write,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbDebug", 0664, NULL, &proc_fops);
 
@@ -761,6 +775,7 @@ static void create_asusRgbSetIT_proc_file(void)
 		.open =  asusRgbSetIT_proc_open,
 		.write = asusRgbSetIT_proc_write,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/asusRgbSetIT", 0664, NULL, &proc_fops);
 
@@ -813,6 +828,7 @@ static void create_rgbSensor_enable_proc_file(void)
 		.open =  rgbSensor_enable_proc_open,
 		.write = rgbSensor_enable_proc_write,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_enable", 0664, NULL, &proc_fops);
 
@@ -841,6 +857,7 @@ static void create_rgbSensor_update_calibration_data_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_update_calibration_data_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_update_calibration_data", 0440, NULL, &proc_fops);
 
@@ -899,6 +916,7 @@ static void create_rgbSensor_itTime_proc_file(void)
 		.open =  rgbSensor_itTime_proc_open,
 		.write = rgbSensor_itTime_proc_write,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_itTime", 0664, NULL, &proc_fops);
 
@@ -928,6 +946,7 @@ static void create_rgbSensor_raw_r_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_raw_r_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_r", 0444, NULL, &proc_fops);
 
@@ -957,6 +976,7 @@ static void create_rgbSensor_raw_g_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_raw_g_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_g", 0444, NULL, &proc_fops);
 
@@ -986,6 +1006,7 @@ static void create_rgbSensor_raw_b_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_raw_b_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_b", 0444, NULL, &proc_fops);
 
@@ -1015,6 +1036,7 @@ static void create_rgbSensor_raw_w_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_raw_w_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_raw_w", 0444, NULL, &proc_fops);
 
@@ -1044,6 +1066,7 @@ static void create_rgbSensor_r_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_r_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_r", 0444, NULL, &proc_fops);
 
@@ -1073,6 +1096,7 @@ static void create_rgbSensor_g_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_g_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_g", 0444, NULL, &proc_fops);
 
@@ -1102,6 +1126,7 @@ static void create_rgbSensor_b_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_b_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_b", 0444, NULL, &proc_fops);
 
@@ -1131,6 +1156,7 @@ static void create_rgbSensor_w_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  rgbSensor_w_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/rgbSensor_w", 0444, NULL, &proc_fops);
 
@@ -1146,16 +1172,21 @@ static void create_rgbSensor_w_proc_file(void)
 
 static int rgbSensor_miscOpen(struct inode *inode, struct file *file)
 {
-	RGB_DBG("%s\n", __func__);
-	rgbSensor_setEnable(true);
-	return 0;
+	int ret = 0;
+	ret = rgbSensor_setEnable(true);
+	RGB_DBG("%s: %d\n", __func__, ret);
+	if (ret < 0) {
+		rgbSensor_setEnable(false);
+	}
+	return ret;
 }
 
 static int rgbSensor_miscRelease(struct inode *inode, struct file *file)
 {
-	RGB_DBG("%s\n", __func__);
-	rgbSensor_setEnable(false);
-	return 0;
+	int ret = 0;
+	ret = rgbSensor_setEnable(false);
+	RGB_DBG("%s: %d\n", __func__, ret);
+	return ret;
 }
 static long rgbSensor_miscIoctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -1167,26 +1198,43 @@ static long rgbSensor_miscIoctl(struct file *file, unsigned int cmd, unsigned lo
 	int l_debug_mode = 0;
 	switch (cmd) {
 		case ASUS_RGB_SENSOR_IOCTL_IT_SET:
-			if (cm_lp_info->als_enable == 1) {
-				ret = copy_from_user(&it_time, (int __user*)arg, sizeof(it_time));
-				rgbSensor_itSet_ms(it_time);
-				if (cm_lp_info->it_time >= 0 && cm_lp_info->it_time <= 5) {
-					RGB_DBG_API("%s: cmd = IT_SET, time = %dms\n", __func__, 40 << cm_lp_info->it_time);
-				} else{
-					RGB_DBG_E("%s: cmd = IT_SET, time error(%d)\n", __func__, cm_lp_info->it_time);
-				}
-			} else{
+			if (cm_lp_info->als_enable != 1) {
+				ret = -2;
 				RGB_DBG_E("%s: als not enabled yet!\n", __func__);
+				goto end;
+			}
+			ret = copy_from_user(&it_time, (int __user*)arg, sizeof(it_time));
+			if (ret < 0) {
+				RGB_DBG_E("%s: cmd = IT_SET, copy_from_user error(%d)\n", __func__, cm_lp_info->it_time);
+				goto end;
+			}
+			ret = rgbSensor_itSet_ms(it_time);
+			if (cm_lp_info->it_time >= 0 && cm_lp_info->it_time <= 5) {
+				RGB_DBG_API("%s: cmd = IT_SET, time = %dms\n", __func__, 40 << cm_lp_info->it_time);
+			} else{
+				RGB_DBG_E("%s: cmd = IT_SET, time error(%d)\n", __func__, cm_lp_info->it_time);
 			}
 			break;
 		case ASUS_RGB_SENSOR_IOCTL_DATA_READ:
-			get_rgb_data(RGB_DATA_R, &adc_data, true);
+			ret = get_rgb_data(RGB_DATA_R, &adc_data, true);
+			if (ret < 0) {
+				goto end;
+			}
 			dataI[0] = adc_data;
-			get_rgb_data(RGB_DATA_G, &adc_data, true);
+			ret = get_rgb_data(RGB_DATA_G, &adc_data, true);
+			if (ret < 0) {
+				goto end;
+			}
 			dataI[1] = adc_data;
-			get_rgb_data(RGB_DATA_B, &adc_data, true);
+			ret = get_rgb_data(RGB_DATA_B, &adc_data, true);
+			if (ret < 0) {
+				goto end;
+			}
 			dataI[2] = adc_data;
-			get_rgb_data(RGB_DATA_W, &adc_data, true);
+			ret = get_rgb_data(RGB_DATA_W, &adc_data, true);
+			if (ret < 0) {
+				goto end;
+			}
 			dataI[3] = adc_data;
 			dataI[4] = 1;
 			RGB_DBG_API("%s: cmd = DATA_READ, data[0] = %d, data[1] = %d, data[2] = %d, data[3] = %d, data[4] = %d\n"
@@ -1208,9 +1256,11 @@ static long rgbSensor_miscIoctl(struct file *file, unsigned int cmd, unsigned lo
 			ret = copy_to_user((int __user*)arg, &l_debug_mode, sizeof(l_debug_mode));
 			break;
 		default:
+			ret = -1;
 			RGB_DBG_E("%s: default\n", __func__);
 	}
-	return 0;
+end:
+	return ret;
 }
 static struct file_operations cm3323e_fops = {
   .owner = THIS_MODULE,
@@ -1255,6 +1305,26 @@ static int32_t rgbSensor_getDt(struct device_node *of_node,
 	}
 	return rc;
 }
+
+#ifdef CONFIG_I2C_STRESS_TEST
+static int TestRgbSensorReadWrite(struct i2c_client *client)
+{
+	bool statusValid = false;
+	i2c_log_in_test_case("[CM3323E][Test]%s start\n", __func__);
+	statusValid = rgbSensor_checkI2C();
+	i2c_log_in_test_case("[CM3323E][Test]%s: %s\n", __func__, statusValid ? "PASS" : "FAIL");
+	return statusValid ? I2C_TEST_PASS : I2C_TEST_CM3323E_FAIL;
+};
+static struct i2c_test_case_info gRgbSensorTestCaseInfo[] =
+{
+	__I2C_STRESS_TEST_CASE_ATTR(TestRgbSensorReadWrite),
+};
+static void cm3323e_i2c_stress_test(void)
+{
+	RGB_DBG("%s\n", __FUNCTION__);
+	i2c_add_test_case(cm_lp_info->i2c_client, "cm3323e", ARRAY_AND_SIZE(gRgbSensorTestCaseInfo));
+}
+#endif
 static int cm3323e_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
@@ -1289,6 +1359,9 @@ static int cm3323e_probe(struct i2c_client *client,
 		goto err_rgbSensor_miscRegister;
 	}
 
+#ifdef CONFIG_I2C_STRESS_TEST
+	cm3323e_i2c_stress_test();
+#endif
 	create_rgbSensor_dump_proc_file();
 	create_rgbSensor_status_proc_file();
 	create_asusRgbCalibEnable_proc_file();

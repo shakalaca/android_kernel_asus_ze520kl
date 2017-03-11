@@ -29,6 +29,9 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/memory_dump.h>
 #include <soc/qcom/watchdog.h>
+// ASUS_BSP +++
+#include <linux/qpnp/power-on.h>
+// ASUS_BSP ---
 
 #define MODULE_NAME "msm_watchdog"
 #define WDT0_ACCSCSSNBARK_INT 0
@@ -388,6 +391,9 @@ void msm_trigger_wdog_bite(void)
 	if (!wdog_data)
 		return;
 	pr_info("Causing a watchdog bite!");
+	// ASUS_BSP +++
+	qpnp_pon_set_pmic();
+	// ASUS_BSP ---
 	__raw_writel(1, wdog_data->base + WDT0_BITE_TIME);
 	mb();
 	__raw_writel(1, wdog_data->base + WDT0_RST);

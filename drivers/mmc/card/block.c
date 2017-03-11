@@ -135,6 +135,7 @@ struct mmc_blk_data {
 #define MMC_BLK_DISCARD		BIT(2)
 #define MMC_BLK_SECDISCARD	BIT(3)
 #define MMC_BLK_FLUSH		BIT(4)
+#define MMC_BLK_PARTSWITCH	BIT(5)
 
 	/*
 	 * Only set in main mmc_blk_data associated
@@ -1076,8 +1077,13 @@ static inline int mmc_blk_part_switch(struct mmc_card *card,
 		ret = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 				 EXT_CSD_PART_CONFIG, part_config,
 				 card->ext_csd.part_time);
-		if (ret)
+
+		if (ret) {
+			pr_err("%s: mmc_blk_part_switch failure, %d -> %d\n",
+				mmc_hostname(card->host), main_md->part_curr,
+					md->part_type);
 			return ret;
+		}
 
 		card->ext_csd.part_config = part_config;
 		card->part_curr = md->part_type;
@@ -1519,6 +1525,13 @@ static int mmc_blk_cmdq_issue_discard_rq(struct mmc_queue *mq,
 	from = blk_rq_pos(req);
 	nr = blk_rq_sectors(req);
 
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPEND_TEST
+	if (card->host->suspendtest)
+             card->sectors_changed += blk_rq_sectors(req);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
+
 	if (mmc_can_discard(card))
 		arg = MMC_DISCARD_ARG;
 	else if (mmc_can_trim(card))
@@ -1561,6 +1574,14 @@ static int mmc_blk_issue_discard_rq(struct mmc_queue *mq, struct request *req)
 
 	from = blk_rq_pos(req);
 	nr = blk_rq_sectors(req);
+
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPEND_TEST
+        if (card->host->suspendtest)
+                 card->sectors_changed += blk_rq_sectors(req);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
+
 
 	if (mmc_can_discard(card))
 		arg = MMC_DISCARD_ARG;
@@ -1607,6 +1628,13 @@ static int mmc_blk_cmdq_issue_secdiscard_rq(struct mmc_queue *mq,
 
 	from = blk_rq_pos(req);
 	nr = blk_rq_sectors(req);
+
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPEND_TEST
+	if (card->host->suspendtest)
+             card->sectors_changed += blk_rq_sectors(req);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
 
 	if (mmc_can_trim(card) && !mmc_erase_group_aligned(card, from, nr))
 		arg = MMC_SECURE_TRIM1_ARG;
@@ -1668,6 +1696,13 @@ static int mmc_blk_issue_secdiscard_rq(struct mmc_queue *mq,
 
 	from = blk_rq_pos(req);
 	nr = blk_rq_sectors(req);
+
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPEND_TEST
+	if (card->host->suspendtest)
+             card->sectors_changed += blk_rq_sectors(req);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
 
 	if (mmc_can_trim(card) && !mmc_erase_group_aligned(card, from, nr))
 		arg = MMC_SECURE_TRIM1_ARG;
@@ -2442,8 +2477,15 @@ static u8 mmc_blk_prep_packed_list(struct mmc_queue *mq, struct request *req)
 			}
 		}
 
-		if (rq_data_dir(next) == WRITE)
+		if (rq_data_dir(next) == WRITE) {
 			mq->num_of_potential_packed_wr_reqs++;
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPENDTEST
+		if (card->host->suspendtest)
+			card->sectors_changed += blk_rq_sectors(next);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
+		}
 		list_add_tail(&next->queuelist, &mqrq->packed->list);
 		cur = next;
 		reqs++;
@@ -2815,6 +2857,14 @@ static int mmc_blk_cmdq_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		    && (rq_data_dir(req) == READ))
 			active_small_sector_read = 1;
 	}
+
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPENDTEST
+    if ((card->host->suspendtest) && (rq_data_dir(req) == WRITE))
+            card->sectors_changed += blk_rq_sectors(req);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
+
 	ret = mmc_blk_cmdq_start_req(card->host, mc_rq);
 	if (!ret && active_small_sector_read)
 		host->cmdq_ctx.active_small_sector_read_reqs++;
@@ -3251,8 +3301,15 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 	if (!rqc && !mq->mqrq_prev->req)
 		return 0;
 
-	if (rqc)
+	if (rqc) {
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPENDTEST
+		if ((card->host->suspendtest) && (rq_data_dir(rqc) == WRITE))
+			card->sectors_changed += blk_rq_sectors(rqc);
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
 		reqs = mmc_blk_prep_packed_list(mq, rqc);
+	}
 
 	do {
 		if (rqc) {
@@ -3477,6 +3534,10 @@ static int mmc_blk_cmdq_issue_rq(struct mmc_queue *mq, struct request *req)
 
 	mmc_get_card(card);
 
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	if (mmc_bus_needs_resume(card->host))
+		mmc_resume_bus(card->host);
+#endif
 	if (!card->host->cmdq_ctx.active_reqs && mmc_card_doing_bkops(card)) {
 		ret = mmc_cmdq_halt(card->host, true);
 		if (ret)
@@ -3557,6 +3618,7 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_host *host = card->host;
 	unsigned long flags;
 	unsigned int cmd_flags = req ? req->cmd_flags : 0;
+	int err;
 
 	if (req && !mq->mqrq_prev->req) {
 		/* claim host only for the first request */
@@ -3574,7 +3636,17 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	}
 
 	ret = mmc_blk_part_switch(card, md);
+
 	if (ret) {
+		err = mmc_blk_reset(md, card->host, MMC_BLK_PARTSWITCH);
+		if (!err) {
+			pr_err("%s: mmc_blk_reset(MMC_BLK_PARTSWITCH) succeeded.\n",
+					mmc_hostname(host));
+			mmc_blk_reset_success(md, MMC_BLK_PARTSWITCH);
+		} else
+			pr_err("%s: mmc_blk_reset(MMC_BLK_PARTSWITCH) failed.\n",
+				mmc_hostname(host));
+
 		if (req) {
 			blk_end_request_all(req, -EIO);
 		}

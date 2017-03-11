@@ -292,6 +292,39 @@ __setup("androidboot.mode=", set_charger_mode);
 EXPORT_SYMBOL(g_Charger_mode);
 //ASUS_BSP Austin_T : add for kernel charger mode.
 
+//ASUS_BSP Austin_T : add for usb alert suboard status. +++
+bool g_usb_alert_mode = false;
+static int set_usb_alert_mode(char *str)
+{
+    if ( strcmp("1", str) == 0 )
+        g_usb_alert_mode = true;
+    else
+        g_usb_alert_mode = false;
+
+    printk("g_usb_alert_mode = %d\n", g_usb_alert_mode);
+    return 0;
+}
+__setup("androidboot.thermal.alert=", set_usb_alert_mode);
+EXPORT_SYMBOL(g_usb_alert_mode);
+//ASUS_BSP Austin_T : add for usb alert suboard status.
+
+//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. +++
+bool g_is_CN_sku = false;
+
+static int check_CN_Sku(char *str)
+{
+    if (strcmp("15", str) == 0)
+        g_is_CN_sku = true;
+    else
+        g_is_CN_sku = false;
+
+    printk("[USB] g_is_CN_sku = %d\n", g_is_CN_sku);
+    return 0;
+}
+__setup("androidboot.id.rf=", check_CN_Sku);
+EXPORT_SYMBOL(g_is_CN_sku);
+//ASUS_BSP Jeremy : add for loading CN-sku USB eye pattern. ---
+
 //+++ ASUS_BSP : miniporting : Add for audio dbg mode
 int g_ftm_mode = 0;
 EXPORT_SYMBOL(g_ftm_mode);
@@ -543,14 +576,20 @@ static int set_lcd_id(char *str)
 		g_asus_lcdID = ZE552KL_LCD_CTC;
 		printk("LCD ID = CTC\n");
 	} else if (strcmp("TM5P2", str) == 0 ){
-		g_asus_lcdID = ZE552KL_LCD_TM5P2;
+		g_asus_lcdID = ZE520KL_LCD_TM;
 		printk("LCD ID = TM5P2\n");
 	} else if (strcmp("TM5P5", str) == 0 ){
-		g_asus_lcdID = ZE552KL_LCD_TM5P5;
+		g_asus_lcdID = ZE552KL_LCD_TM;
 		printk("LCD ID = TM5P5\n");
 	} else if (strcmp("BOE", str) == 0 ){
-		g_asus_lcdID = ZE552KL_LCD_BOE;
+		g_asus_lcdID = ZE520KL_LCD_BOE;
 		printk("LCD ID = BOE\n");
+	} else if (strcmp("TXD5P5", str) == 0 ){
+		g_asus_lcdID = ZE552KL_LCD_TXD;
+		printk("LCD ID = TXD5P5\n");
+	} else if (strcmp("LCE5P5", str) == 0 ){
+		g_asus_lcdID = ZE552KL_LCD_LCE;
+		printk("LCD ID = LCE5P5\n");
 	}
 
 	printk("g_asus_lcdID = %d\n" , g_asus_lcdID);

@@ -30,7 +30,7 @@
 /************************/
 #define MODULE_NAME			"ASH_ALGO"
 #define SENSOR_TYPE_NAME		"IRsensor"
-
+#define SW_OFFSET 1
 #undef dbg
 #ifdef ASH_ALGO_DEBUG
 	#define dbg(fmt, args...) printk(KERN_DEBUG "[%s][%s]"fmt,MODULE_NAME,SENSOR_TYPE_NAME,##args)
@@ -46,6 +46,8 @@
 /******************************/
 /* IR Sensor Global Variables */
 /*****************************/
+#define MAX_ADC 65535	/* Max adc value */
+#define MAX_DIFF 19000	/* 20000 lux - 1000 lux */
 static int ASUS_IR_SENSOR_IRQ;
 static int ASUS_IR_SENSOR_INT;
 static struct ASUS_light_sensor_data			*g_als_data;
@@ -109,6 +111,7 @@ struct ASUS_light_sensor_data
 	int g_als_calvalue_200lux;				/* Lightsensor 200lux calibration value(adc) */
 	int g_als_calvalue_1000lux;				/* Lightsensor 1000lux calibration value(adc) */
 	int g_als_calvalue_shift;					/* Lightsensor Shift calibration value */
+	int g_als_maxlux_shift;					/* Lightsensor Shift for lux 20000 */
 	int g_als_change_sensitivity;			/* Lightsensor Change sensitivity */
 	int g_als_log_threshold;					/* Lightsensor Log Print Threshold */
 
@@ -503,18 +506,30 @@ static int light_turn_onoff(bool bOn)
 static int light_get_lux(int adc)
 {
 	int lux = 0;
+#ifdef SW_OFFSET
+	int slope = 0;
+#endif
 
 	if(adc < 0) {
 		err("Light Sensor get Lux ERROR. (adc < 0)\n");
 		return 0;
 	}	
 
-	if(adc > g_als_data->g_als_calvalue_200lux) {
+#ifdef SW_OFFSET
+	slope = (800 * 10000 / (g_als_data->g_als_calvalue_1000lux - g_als_data->g_als_calvalue_200lux));
+	if(slope < 3052 && adc > g_als_data->g_als_calvalue_1000lux) {
+		log("SW work around for 20000 lux\n");
+		lux = (adc * MAX_DIFF /(MAX_ADC - g_als_data->g_als_calvalue_1000lux)
+				+ g_als_data->g_als_maxlux_shift);
+	}else 
+#endif
+	if(adc < g_als_data->g_als_calvalue_200lux) {
+		lux = (adc * 200/(g_als_data->g_als_calvalue_200lux));	
+	} else {
 		lux = (adc * 800/(g_als_data->g_als_calvalue_1000lux-g_als_data->g_als_calvalue_200lux)
 				+ g_als_data->g_als_calvalue_shift);	
-	} else {
-		lux = (adc * 200/(g_als_data->g_als_calvalue_200lux));
 	}
+
 	if(lux > LIGHT_MAX_LUX)
 		lux = LIGHT_MAX_LUX;
 	
@@ -541,9 +556,12 @@ static int 	light_get_shift(void)
 	}else{
 		err("Light Sensor read DEFAULT 1000lux Calibration: Cal: %d\n", g_als_data->g_als_calvalue_1000lux);
 	}
-		
+
+	g_als_data->g_als_maxlux_shift = (1000 - g_als_data->g_als_calvalue_1000lux*MAX_DIFF/
+				(MAX_ADC - g_als_data->g_als_calvalue_1000lux));
 	g_als_data->g_als_calvalue_shift = (1000 - g_als_data->g_als_calvalue_1000lux*800/
 				(g_als_data->g_als_calvalue_1000lux-g_als_data->g_als_calvalue_200lux));
+
 	return g_als_data->g_als_calvalue_shift;
 }
 
@@ -1366,32 +1384,50 @@ static IRsensor_GPIO mIRsensor_GPIO = {
 bool proximity_check_status(void)
 {	
 	int adc_value = 0;
-	bool status = false;	
-
+	bool status = false;
+	int ret=0;
+	int threshold_high = 0;
+	
 	/* check probe status */
 	if(IRsensor_hw_client == NULL)
 		return status;
 
 	mutex_lock(&g_ir_lock);
-	
-	if(g_ps_data->HAL_switch_on == false){
-		proximity_turn_onoff(true);		
+
+	/*Set Proximity Threshold(reset to factory)*/
+	if(g_ps_data->Device_switch_on == false){
+		ret = proximity_set_threshold();
+		if (ret < 0) {	
+			err("proximity_set_threshold ERROR\n");
+			return status;
+		}
+
+		ret = IRsensor_hw_client->mpsensor_hw->proximity_hw_turn_onoff(true);	
+		if(ret < 0){
+			err("proximity_hw_turn_onoff(true) ERROR\n");
+			return status;
+		}			
 	}
 	
 	msleep(PROXIMITY_TURNON_DELAY_TIME);
 
 	adc_value = IRsensor_hw_client->mpsensor_hw->proximity_hw_get_adc();
+	threshold_high =  (g_ps_data->g_ps_calvalue_hi + g_ps_data->g_ps_autok_max);
 
-	if (adc_value >= g_ps_data->g_ps_calvalue_hi) {
+	if (adc_value >= threshold_high) {
 		status = true;
 	}else{ 
 		status = false;
 	}
-	log("proximity_check_status : %s , (adc, hi_cal)=(%d, %d)\n", 
-		status?"Close":"Away", adc_value, g_ps_data->g_ps_calvalue_hi);
+	log("proximity_check_status : %s , (adc, hi_cal+autok_max)=(%d, %d)\n", 
+		status?"Close":"Away", adc_value, threshold_high);
 	
-	if(g_ps_data->HAL_switch_on == false){
-		proximity_turn_onoff(false);		
+	if(g_ps_data->Device_switch_on == false){
+		ret = IRsensor_hw_client->mpsensor_hw->proximity_hw_turn_onoff(false);	
+		if(ret < 0){
+			err("proximity_hw_turn_onoff(false) ERROR\n");
+			return status;
+		}			
 	}
 	
 	mutex_unlock(&g_ir_lock);
@@ -1506,7 +1542,7 @@ static int proximity_check_minCT(void)
 		g_ps_data->crosstalk_diff = crosstalk_diff;
 	}else{
 		log("crosstalk diff(%d) <= proximity autok min(%d)\n", crosstalk_diff, g_ps_data->g_ps_autok_min);
-		g_ps_data->crosstalk_diff = crosstalk_diff;
+		g_ps_data->crosstalk_diff = 0;
 	}
 	
 	return 0;

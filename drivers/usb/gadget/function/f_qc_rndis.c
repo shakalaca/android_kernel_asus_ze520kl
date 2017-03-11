@@ -616,7 +616,7 @@ rndis_qc_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	/* composite driver infrastructure handles everything except
 	 * CDC class messages; interface activation uses set_alt().
 	 */
-	pr_debug("%s: Enter\n", __func__);
+	//pr_debug("%s: Enter\n", __func__);
 	switch ((ctrl->bRequestType << 8) | ctrl->bRequest) {
 
 	/* RNDIS uses the CDC command encapsulation mechanism to implement
@@ -823,11 +823,6 @@ static void rndis_qc_suspend(struct usb_function *f)
 		 */
 		rndis_flow_control(rndis->config, true);
 		pr_debug("%s(): Disconnecting\n", __func__);
-		if (rndis->xport == USB_GADGET_XPORT_BAM2BAM_IPA &&
-			gadget_is_dwc3(f->config->cdev->gadget)) {
-			msm_ep_unconfig(rndis->port.out_ep);
-			msm_ep_unconfig(rndis->port.in_ep);
-		}
 	}
 
 	bam_data_suspend(&rndis->bam_port, rndis->port_num, USB_FUNC_RNDIS,

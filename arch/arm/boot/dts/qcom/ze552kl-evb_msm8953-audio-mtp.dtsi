@@ -30,17 +30,28 @@
 
 	qcom,msm-gpios =
 		"pri_i2s",
-		"quin_i2s";
+		"quin_i2s",
+		"comp_gpio";
 	qcom,pinctrl-names =
 		"all_off",
 		"pri_i2s_act",
 		"quin_act",
-		"quin_pri_i2s_act";
+		"quin_pri_i2s_act",
+		"comp_gpio_act",
+		"comp_gpio_pri_i2s_act",
+		"comp_gpio_quin_act",
+		"comp_gpio_quin_pri_i2s_act";
+
 	pinctrl-names =
 		"all_off",
 		"pri_i2s_act",
 		"quin_act",
-		"quin_pri_i2s_act";
+		"quin_pri_i2s_act",
+		"comp_gpio_act",
+		"comp_gpio_pri_i2s_act",
+		"comp_gpio_quin_act",
+		"comp_gpio_quin_pri_i2s_act";
+
 	pinctrl-0 = <&cdc_pdm_lines_sus &cdc_pdm_lines_2_sus
 			&pri_tlmm_lines_sus &pri_tlmm_ws_sus>;
 	pinctrl-1 = <&cdc_pdm_lines_act &cdc_pdm_lines_2_act
@@ -49,6 +60,14 @@
 			&pri_tlmm_lines_act &pri_tlmm_ws_act>;
 	pinctrl-3 = <&cdc_pdm_lines_act &cdc_pdm_lines_2_act
 			&pri_tlmm_lines_act &pri_tlmm_ws_act>;
+	pinctrl-4 = <&cdc_pdm_lines_sus &cdc_pdm_comp_lines_act
+		&cdc_pdm_lines_2_sus &pri_tlmm_lines_sus &pri_tlmm_ws_sus>;
+	pinctrl-5 = <&cdc_pdm_lines_act &cdc_pdm_comp_lines_act
+		&cdc_pdm_lines_2_act &pri_tlmm_lines_sus &pri_tlmm_ws_sus>;
+	pinctrl-6 = <&cdc_pdm_lines_sus &cdc_pdm_comp_lines_act
+		&cdc_pdm_lines_2_sus &pri_tlmm_lines_act &pri_tlmm_ws_act>;
+	pinctrl-7 = <&cdc_pdm_lines_act &cdc_pdm_comp_lines_act
+		&cdc_pdm_lines_2_act &pri_tlmm_lines_act &pri_tlmm_ws_act>;
 
 	AUDIO_DEBUG = <&tlmm 89 0x00>; /* ASUS_BSP Paul +++ */
 };

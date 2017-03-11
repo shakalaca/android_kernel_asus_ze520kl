@@ -3541,7 +3541,6 @@ static int ffs_ready(struct ffs_data *ffs)
 	}
 
 	set_bit(FFS_FL_CALL_CLOSED_CALLBACK, &ffs->flags);
-
 done:
 	ffs_dev_unlock();
 	return ret;
@@ -3561,8 +3560,8 @@ static void ffs_closed(struct ffs_data *ffs)
 
 	ffs_obj->desc_ready = false;
 
-	if (test_and_clear_bit(FFS_FL_CALL_CLOSED_CALLBACK, &ffs->flags) && 
-			ffs_obj->ffs_closed_callback)
+	if (test_and_clear_bit(FFS_FL_CALL_CLOSED_CALLBACK, &ffs->flags) &&
+	    ffs_obj->ffs_closed_callback)
 		ffs_obj->ffs_closed_callback(ffs);
 
 	if (ffs_obj->opts)

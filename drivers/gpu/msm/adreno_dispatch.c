@@ -25,6 +25,11 @@
 #include "adreno_trace.h"
 #include "kgsl_sharedmem.h"
 
+extern struct FENCEDEBUG *fencedebug;
+
+struct FENCEDEBUG fencedebug_struct;
+struct FENCEDEBUG *fencedebug=&fencedebug_struct;
+
 #define CMDQUEUE_NEXT(_i, _s) (((_i) + 1) % (_s))
 
 /* Time in ms after which the dispatcher tries to schedule an unscheduled RB */
@@ -406,6 +411,10 @@ static struct kgsl_cmdbatch *_get_cmdbatch(struct adreno_context *drawctxt)
 		if (!cmdbatch->timeout_jiffies) {
 			cmdbatch->timeout_jiffies =
 				jiffies + msecs_to_jiffies(5000);
+
+			fencedebug->kgsl_cmdbatch_timer_starttime=jiffies;
+			fencedebug->mod_timer_address=&cmdbatch->timer;
+
 			mod_timer(&cmdbatch->timer, cmdbatch->timeout_jiffies);
 		}
 
@@ -427,9 +436,24 @@ static struct kgsl_cmdbatch *adreno_dispatcher_get_cmdbatch(
 {
 	struct kgsl_cmdbatch *cmdbatch;
 
+	long drawctxtlock_duration;
+
+	fencedebug->drawctxtlock_address=&drawctxt->lock;
+	fencedebug->drawctxtlock_starttime=jiffies;
+
 	spin_lock(&drawctxt->lock);
 	cmdbatch = _get_cmdbatch(drawctxt);
 	spin_unlock(&drawctxt->lock);
+
+	fencedebug->drawctxtlock_endtime=jiffies;
+
+	drawctxtlock_duration=fencedebug->drawctxtlock_endtime-fencedebug->drawctxtlock_starttime;
+	if(drawctxtlock_duration>msecs_to_jiffies(3000) || drawctxtlock_duration< (long)(-msecs_to_jiffies(3000))){
+		printk("kgsl adreno_dispatcher_get_cmdbatch drawctxtlock address: %p\n", (void *)&drawctxt->lock);
+		printk("kgsl adreno_dispatcher_get_cmdbatch drawctxtlock starttime: %lu endtime: %lu\n",
+			fencedebug->drawctxtlock_starttime, fencedebug->drawctxtlock_endtime);
+		printk("kgsl adreno_dispatcher_get_cmdbatch drawctxtlock_duration %ld\n", drawctxtlock_duration);
+	}
 
 	/*
 	 * Delete the timer and wait for timer handler to finish executing
@@ -682,7 +706,10 @@ static int dispatcher_context_sendcmds(struct adreno_device *adreno_dev,
 		struct kgsl_cmdbatch *cmdbatch;
 
 		if (adreno_gpu_fault(adreno_dev) != 0)
+		{
+			printk("kgsl dispatcher_context_sendcmds adreno_gpu_fault(adreno_dev) != 0\n");
 			break;
+		}
 
 		cmdbatch = adreno_dispatcher_get_cmdbatch(drawctxt);
 
@@ -1968,6 +1995,11 @@ int adreno_dispatch_process_cmdqueue(struct adreno_device *adreno_dev,
 		struct kgsl_cmdbatch *cmdbatch =
 			dispatch_q->cmd_q[dispatch_q->head];
 		struct adreno_context *drawctxt;
+
+		uint64_t msecs;
+		unsigned int usecs;
+		long submit_retire_time;
+
 		BUG_ON(cmdbatch == NULL);
 
 		drawctxt = ADRENO_CONTEXT(cmdbatch->context);
@@ -2017,6 +2049,22 @@ int adreno_dispatch_process_cmdqueue(struct adreno_device *adreno_dev,
 			/* Record the delta between submit and retire ticks */
 			drawctxt->submit_retire_ticks[drawctxt->ticks_index] =
 				retire_ticks - cmdbatch->submit_ticks;
+
+			msecs = drawctxt->submit_retire_ticks[drawctxt->ticks_index] * 10;
+			usecs = do_div(msecs, 192);
+			usecs = do_div(msecs, 1000);
+
+			submit_retire_time=(long)(1000*msecs+usecs); // convert to usec
+			if(submit_retire_time>1000*2000 && &drawctxt->base!=NULL){
+				printk("drawctxt->base->id=%d ts=%u\n", drawctxt->base.id, drawctxt->timestamp);
+				if(drawctxt->base.proc_priv!=NULL){
+					printk("drawctxt->base.proc_priv->pid=%d drawctxt->base.tid=%d\n",
+						drawctxt->base.proc_priv->pid, drawctxt->base.tid);
+				}
+				printk("drawctxt->submit_retire_ticks[%d]=%ld submit_retire_time=%ld.%0u ms\n",
+					drawctxt->ticks_index, (long)drawctxt->submit_retire_ticks[drawctxt->ticks_index],
+					(long)msecs, usecs);
+			}
 
 			drawctxt->ticks_index = (drawctxt->ticks_index + 1)
 				% SUBMIT_RETIRE_TICKS_SIZE;

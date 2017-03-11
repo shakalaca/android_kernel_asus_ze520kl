@@ -33,6 +33,8 @@
 #include "ipa_qmi_service.h"
 #include <linux/rmnet_ipa_fd_ioctl.h>
 #include <linux/ipa.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <uapi/linux/net_map.h>
 
 #include "ipa_trace.h"
@@ -70,6 +72,8 @@ static struct workqueue_struct *ipa_rm_q6_workqueue; /* IPA_RM workqueue*/
 static atomic_t is_initialized;
 static atomic_t is_ssr;
 static void *subsys_notify_handle;
+extern int rmnet_irq_flag_function_rx(void);//ASUS_BSP + Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+extern int rmnet_irq_flag_function_rx_260(void);//ASUS_BSP + Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
 
 u32 apps_to_ipa_hdl, ipa_to_apps_hdl; /* get handler from ipa */
 static struct mutex ipa_to_apps_pipe_handle_guard;
@@ -1172,15 +1176,50 @@ static void apps_ipa_packet_receive_notify(void *priv,
 	struct net_device *dev = (struct net_device *)priv;
 	int result;
 	unsigned int packet_len = skb->len;
+        //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+        struct iphdr *ip4h;
+        struct ipv6hdr *ip6h;
+        unsigned char *map_payload;
+        unsigned char ip_version;
+        //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
 
 	IPAWANDBG("Rx packet was received");
 	if (evt != IPA_RECEIVE) {
 		IPAWANERR("A none IPA_RECEIVE event in wan_ipa_receive\n");
 		return;
 	}
+        //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+        map_payload = (unsigned char *)(skb->data
+                + sizeof(struct rmnet_map_header_s));
+        ip_version = (*map_payload & 0xF0) >> 4;
+        //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
 
 	skb->dev = ipa_netdevs[0];
 	skb->protocol = htons(ETH_P_MAP);
+
+        //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+        if (rmnet_irq_flag_function_rx() ==1 ){
+        	if (ip_version == 0x04){
+                        ip4h = (struct iphdr *) map_payload;
+                	pr_err_ratelimited("[data] IRQ57 First packet IP4 address src is %pI4",&ip4h->saddr);
+        	}else if (ip_version == 0x06){
+                        ip6h = (struct ipv6hdr *) map_payload;
+                	pr_err_ratelimited("[data] IRQ57 First packet IP6 address src is %pI6",&ip6h->saddr);
+                }
+        }
+         //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
+
+        //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
+        if (rmnet_irq_flag_function_rx_260() ==1 ){
+                if (ip_version == 0x04){
+                        ip4h = (struct iphdr *) map_payload;
+                        pr_err_ratelimited("[data] IRQ260 First packet IP4 address src is %pI4",&ip4h->saddr);
+                }else if (ip_version == 0x06){
+                        ip6h = (struct ipv6hdr *) map_payload;
+                        pr_err_ratelimited("[data] IRQ260 First packet IP6 address src is %pI6",&ip6h->saddr);
+                }
+        }
+         //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
 
 	if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0) {
 		trace_rmnet_ipa_netifni(dev->stats.rx_packets);

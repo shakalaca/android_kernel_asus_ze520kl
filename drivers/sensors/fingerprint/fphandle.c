@@ -1267,7 +1267,7 @@ static irqreturn_t gf_irq(int irq, void *handle)
 
 	printk("[Goodix] IRQ recive \n");
 
-	wake_lock_timeout(&gf_dev->wake_lock, 1000);
+	wake_lock_timeout(&gf_dev->wake_lock, msecs_to_jiffies(1000));
 
 #ifdef GF_FASYNC
 	if (gf_dev->async)
@@ -1464,6 +1464,7 @@ static void create_fingerprint_proc_file(void)
 		.owner = THIS_MODULE,
 		.open =  fingerprint_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("fpmod", 0444, NULL, &proc_fops);
 

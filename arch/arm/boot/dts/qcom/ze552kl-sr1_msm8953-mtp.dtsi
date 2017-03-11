@@ -232,6 +232,8 @@
 	qcom,dsi-pref-prim-pan = <&dsi_tm5p5_r63350_1080p_video>;
 	qcom,dsi-pref-prim-pan = <&dsi_tm5p2_r63350_1080p_video>;
 	qcom,dsi-pref-prim-pan = <&dsi_boe5p2_ili7807b_1080p_video>;
+	qcom,dsi-pref-prim-pan = <&dsi_txd5p5_nt35596_1080p_video>;
+	qcom,dsi-pref-prim-pan = <&dsi_lce5p5_otm1901a_1080p_video>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
 	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
 	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
@@ -288,6 +290,22 @@
 };
 
 &dsi_boe5p2_ili7807b_1080p_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-pan-enable-dynamic-fps;
+	qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
+	qcom,mdss-dsi-min-refresh-rate = <50>;
+	qcom,mdss-dsi-max-refresh-rate = <60>;
+};
+
+&dsi_txd5p5_nt35596_1080p_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,mdss-dsi-pan-enable-dynamic-fps;
+	qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
+	qcom,mdss-dsi-min-refresh-rate = <50>;
+	qcom,mdss-dsi-max-refresh-rate = <60>;
+};
+
+&dsi_lce5p5_otm1901a_1080p_video {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,mdss-dsi-pan-enable-dynamic-fps;
 	qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
@@ -418,6 +436,7 @@
 	USBID_CTRL-gpios08 = <&pm8953_gpios 8 0x0>;
 	DPM_SW_EN-gpios134 = <&tlmm 134 0x0>;
 	ADC_VDD_EN-gpios99 = <&tlmm 99 0x1>;
+	USB_TEMP_ALERT-gpios90 = <&tlmm 90 0x1>;
 };
 
 &pm8953_gpios {
@@ -430,11 +449,6 @@
 		qcom,out-strength = <3>;
 		qcom,src-sel = <0>;
 		qcom,master-en = <1>;
-		qcom,dtest-sel = <1>;
 		status = "okay";
 	};
-};
-
-&qpdi {
-	qcom,pmic-carddetect-gpio = <&pm8953_gpios 0x2 0>;
 };

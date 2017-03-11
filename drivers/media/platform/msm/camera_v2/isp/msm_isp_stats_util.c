@@ -117,7 +117,7 @@ static int msm_isp_stats_cfg_ping_pong_address(struct vfe_device *vfe_dev,
 					= buf;
 			}
 		}
-	} else if (!vfe_dev->is_split) {
+	} else {
 		if (buf)
 			vfe_dev->hw_info->vfe_ops.stats_ops.
 				update_ping_pong_addr(
@@ -285,8 +285,7 @@ static int32_t msm_isp_stats_configure(struct vfe_device *vfe_dev,
 		if (rc < 0) {
 			pr_err("%s:%d failed: stats buf divert rc %d\n",
 				__func__, __LINE__, rc);
-			if (0 == result)
-				result = rc;
+			result = rc;
 		}
 	}
 	if (is_composite && comp_stats_type_mask) {
@@ -316,7 +315,7 @@ void msm_isp_process_stats_irq(struct vfe_device *vfe_dev,
 		get_comp_mask(irq_status0, irq_status1);
 	stats_irq_mask = vfe_dev->hw_info->vfe_ops.stats_ops.
 		get_wm_mask(irq_status0, irq_status1);
-	if (!(stats_comp_mask || stats_irq_mask) || vfe_dev->ignore_irq)//ASUS_BSP ZZ++ Fix vfe error
+	if (!(stats_comp_mask || stats_irq_mask))
 		return;
 
 	ISP_DBG("%s: vfe %d status: 0x%x\n", __func__, vfe_dev->pdev->id,

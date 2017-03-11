@@ -66,10 +66,12 @@ char cabc_mode[2] = {0x55, Still_MODE};
 char cabc_dim_off_cmd[2] = {0xCE, 0x00};
 char cabc_dim_on_cmd[2] = {0xCE, 0x50};
 static struct panel_list supp_panels[] = {
-	{"BOE", ZE552KL_LCD_BOE},
-	{"CTC", ZE552KL_LCD_CTC},
-	{"TM5P2", ZE552KL_LCD_TM5P2},
-	{"TM5P5", ZE552KL_LCD_TM5P5},
+	{"BOE5P2", ZE520KL_LCD_BOE},
+	{"CTC5P5", ZE552KL_LCD_CTC},
+	{"TM5P2", ZE520KL_LCD_TM},
+	{"TM5P5", ZE552KL_LCD_TM},
+	{"TXD5P5", ZE552KL_LCD_TXD},
+	{"LCE5P5", ZE552KL_LCD_LCE},
 };
 
 char g_reg_buffer[256];
@@ -195,7 +197,7 @@ bool lcd_adjust_backlight(uint8_t byte1, uint8_t byte2, uint8_t byte3, uint8_t b
             filp_close(fp, NULL);
             kfree(buf);
         } else {
-        	if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_TM5P5) {
+        	if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_TXD || g_asus_lcdID == ZE552KL_LCD_LCE) {
 			g_adjust_bl = BL_LIBRA_DEFAULT;
 			mdss_libra_panel = true;
 		} else { 
@@ -533,9 +535,9 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
     if (level < pinfo->bl_min)
         level = pinfo->bl_min;
 
-	if ((g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_BOE) && level <= ILI7807B_BL_THRESHOLD && level > 0)
+	if ((g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE520KL_LCD_BOE) && level <= ILI7807B_BL_THRESHOLD && level > 0)
 		level =ILI7807B_BL_THRESHOLD;
-	else if ((g_asus_lcdID == ZE552KL_LCD_TM5P2 || g_asus_lcdID == ZE552KL_LCD_TM5P5) && level <= R63350_BL_THRESHOLD &&  level > 0)	
+	else if ((g_asus_lcdID == ZE520KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_LCE || g_asus_lcdID == ZE552KL_LCD_TXD) && level <= R63350_BL_THRESHOLD &&  level > 0)	
 		level =R63350_BL_THRESHOLD;	
 		
 
@@ -545,7 +547,7 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 
 	//pr_debug("%s:[DISPLAY] level=%d \n", __func__, level);
 
-	if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_BOE) {
+	if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE520KL_LCD_BOE) {
 		led_pwm_ctc[1] = (unsigned char) (level >> (8 - bl_level_shift));
 		led_pwm_ctc[2] = (unsigned char) (level << bl_level_shift);
 
@@ -1008,7 +1010,7 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 				panel_data);
 
 	if (cabc_first_boot) {
-		if (g_asus_lcdID == ZE552KL_LCD_TM5P2 || g_asus_lcdID == ZE552KL_LCD_TM5P5) {
+		if (g_asus_lcdID == ZE520KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_TM) {
 			on_cmds = &ctrl_pdata->on_cmds;
 			bp = on_cmds->buf;
 			len = on_cmds->blen;
@@ -1073,18 +1075,20 @@ mutex_lock(&bl_cmd_mutex);
 	case BL_DCS_CMD:
 
 	if (!bl_wled_ctrl) {
-
 			
 		if (!mdss_dsi_sync_wait_enable(ctrl_pdata)) {
-			mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
+			if ( g_last_bl)
+				mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
 			if (bl_level && !bl_wled_enable) {
 				if ( g_last_bl) {
 					for (temp=0;temp<=g_wled_dimming_div;temp++) {
 						led_trigger_event(bl_led_trigger, 4095*g_last_bl/g_bl_threshold+( (4095*(g_bl_threshold-g_last_bl) / g_bl_threshold/ g_wled_dimming_div) *temp));
 						msleep(10);
 					}
-				} else
+				} else {
 					led_trigger_event(bl_led_trigger, WLED_MAX_LEVEL_ENABLE);	
+					mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
+					}	
 				printk("[DISPLAY] %s:: bl_wled_enable ctrl enable \n", __func__);
 				bl_wled_enable = true;
 			}
@@ -1121,13 +1125,16 @@ mutex_lock(&bl_cmd_mutex);
 					bl_wled_enable = false;
 			 }  else {
 					bl_wled_enable = false;
-					if (!mdss_dsi_sync_wait_enable(ctrl_pdata))
-						mdss_dsi_panel_bklt_dcs(ctrl_pdata, g_bl_threshold);
-
+					if ( g_last_bl) {
+						if (!mdss_dsi_sync_wait_enable(ctrl_pdata))
+							mdss_dsi_panel_bklt_dcs(ctrl_pdata, g_bl_threshold);
+						}
+					
 					if (g_last_bl == 0) {
 							printk("%s::[DISPLAY] system resume set BL wled directly\n", __func__);
 							led_trigger_event(bl_led_trigger, 4095*bl_level/g_bl_threshold);
-
+							if (!mdss_dsi_sync_wait_enable(ctrl_pdata))
+								mdss_dsi_panel_bklt_dcs(ctrl_pdata, g_bl_threshold);
 					} else if ((bl_level < g_last_bl) && g_last_bl >= g_bl_threshold) {			
 								for (temp=g_wled_dimming_div;temp>=0;temp--) {
 									led_trigger_event(bl_led_trigger, 4095*bl_level/g_bl_threshold +( (4095*(g_bl_threshold-bl_level) / g_bl_threshold / g_wled_dimming_div) *temp));
@@ -1403,7 +1410,7 @@ static void bl_calculate(struct dcs_cmd_req *cmdreq)
     int value = 0;
     memset(g_bl_buffer, 0, 256*sizeof(char));
 
-    if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_BOE) {
+    if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE520KL_LCD_BOE) {
         max = 4095;
         value = (*(cmdreq->rbuf+0) << 8) +(*(cmdreq->rbuf+1));
         snprintf (g_bl_buffer, sizeof(g_bl_buffer),
@@ -1668,7 +1675,7 @@ static ssize_t bl_proc_read(struct file *file, char __user *buf,
     ssize_t ret = 0;
     char *buff;
 
-    if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_BOE)
+    if (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE520KL_LCD_BOE)
         rlen = 2;
     get_tcon_cmd(0x52, rlen);
 
@@ -3189,7 +3196,7 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	bl_level_tmp = pinfo->bl_max + 1;
 	
-	while (bl_level_tmp%256 == 0 && (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE552KL_LCD_BOE) ) {
+	while (bl_level_tmp%256 == 0 && (g_asus_lcdID == ZE552KL_LCD_CTC || g_asus_lcdID == ZE520KL_LCD_BOE) ) {
 		bl_level_tmp /= 2;
 		bl_level_shift++;
 		if (bl_level_tmp == 256) {
@@ -3419,7 +3426,7 @@ int mdss_dsi_panel_init(struct device_node *node,
     proc_create(DUMP_CALIBRATION_INFO, 0666, NULL, &lcd_info_proc_ops);
     //ASUS BSP austin ---
 
-	if ( (g_asus_lcdID == ZE552KL_LCD_TM5P2 || g_asus_lcdID == ZE552KL_LCD_TM5P5) ) {
+	if ( (g_asus_lcdID == ZE520KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_TM || g_asus_lcdID == ZE552KL_LCD_TXD || g_asus_lcdID == ZE552KL_LCD_LCE) ) {
 		g_bl_threshold = R63350_BL_THRESHOLD;
 		g_wled_dimming_div = 20;
 		printk("%s:: TM g_bl_threshold(%d) g_wled_dimming_div(%d)\n", __func__, g_bl_threshold, g_wled_dimming_div);

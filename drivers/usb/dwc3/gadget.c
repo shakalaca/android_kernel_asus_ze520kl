@@ -1421,6 +1421,17 @@ static int dwc3_gadget_ep_queue(struct usb_ep *ep, struct usb_request *request,
 		return -ESHUTDOWN;
 	}
 
+	/*
+	 * Queuing endless request to USB endpoint through generic ep queue
+	 * API should not be allowed.
+	 */
+	if (dep->endpoint.endless) {
+		dev_dbg(dwc->dev, "trying to queue endless request %p to %s\n",
+				request, ep->name);
+		spin_unlock_irqrestore(&dwc->lock, flags);
+		return -EPERM;
+	}
+
 	if (dwc3_gadget_is_suspended(dwc)) {
 		if (dwc->gadget.remote_wakeup)
 			dwc3_gadget_wakeup(&dwc->gadget);
@@ -2928,6 +2939,12 @@ static void dwc3_gadget_reset_interrupt(struct dwc3 *dwc)
 	dev_dbg(dwc->dev, "Notify OTG from %s\n", __func__);
 	dwc->b_suspend = false;
 	dwc3_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_OTG_EVENT, 0);
+
+	#if defined(CONFIG_UNKNOWN_CHARGER)
+	// ASUS_BSP "Add Unknown Charger Support"
+	// We need another event specific for HOST reset interrupt
+	dwc3_notify_event(dwc, DWC3_CONTROLLER_NOTIFY_RESET, 0);
+	#endif
 
 	dbg_event(0xFF, "BUS RST", 0);
 	/* after reset -> Default State */

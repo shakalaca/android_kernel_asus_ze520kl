@@ -34,6 +34,7 @@
 unsigned int pwr_keycode ;
 /*ASUS BSP Porting Debug*/
 // ASUS_BSP +++
+u8  download_mode_value;
 u16 warm_reset_value;
 extern char evtlog_bootup_reason[100];
 extern char evtlog_poweroff_reason[100];
@@ -376,6 +377,36 @@ int qpnp_pon_set_restart_reason(enum pon_restart_reason reason)
 	return rc;
 }
 EXPORT_SYMBOL(qpnp_pon_set_restart_reason);
+// ASUS_BSP +++
+int qpnp_pon_set_pmic(void)
+{
+	int rc = 0;
+	u16 pmic_address = 0xA048;
+	struct qpnp_pon *pon = sys_reset_dev;
+
+	if (!pon)
+		return 0;
+
+	if (pon->spmi->sid == 0) {
+		//
+		// Set 0x02 (Bit1) when watchdog occurs
+		//
+		rc = qpnp_pon_masked_write(pon, pmic_address, 0x02, 0x02);
+		
+		if (rc) {
+
+			dev_err(&pon->spmi->dev,
+				"Unable to write 0xA048 register rc: %d\n",
+				rc);
+			return rc;
+		}
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(qpnp_pon_set_pmic);
+
+// ASUS_BSP ---
 
 /*
  * qpnp_pon_check_hard_reset_stored - Checks if the PMIC need to
@@ -905,6 +936,8 @@ void set_vib_enable(int value)
 #define TIMEOUT_COUNT 55
 static struct work_struct __wait_for_power_key_6s_work;
 static unsigned long press_time;
+static unsigned long slowlog_time;
+
 static int slow_ok;
 void wait_for_power_key_6s_work(struct work_struct *work)
 {
@@ -917,7 +950,7 @@ void wait_for_power_key_6s_work(struct work_struct *work)
 			return;
 		}
 		power_key_6s_running = 1;
-		startime = press_time;
+		startime = slowlog_time;
 		timeout = startime + HZ*TIMEOUT_COUNT/10;
 		for (i = 0, slow_ok = 0; i < TIMEOUT_COUNT && slow_ok == 0 &&
 				time_before(jiffies, timeout) ; i++) {
@@ -968,6 +1001,7 @@ void wait_for_slowlog_work(struct work_struct *work)
 		}
 		one_slowlog_instance_running = 1;
 		startime = press_time;
+		slowlog_time = startime;
 		timeout = startime + HZ*TIMEOUT_SLOW/10;
 		slow_ok = 0;
 		for (i = 0; i < TIMEOUT_SLOW && time_before(jiffies, timeout);
@@ -2353,7 +2387,23 @@ static int qpnp_pon_probe(struct spmi_device *spmi)
 			rc);
 		return rc;
 	}
-
+	
+	// ASUS_BSP +++
+	/* Get PMIC register 0xA048 */
+	if (pon->spmi->sid == 0) {
+		rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
+					0xA048, &download_mode_value, 1);
+		printk("download_mode_value: %x\n", download_mode_value);
+		if (rc) {
+			download_mode_value = 0;
+			dev_err(&pon->spmi->dev,
+				"Unable to read 0xA048 register rc: %d\n",
+				rc);
+			return rc;
+		}
+	}
+	// ASUS_BSP ---
+	
 	/* PON reason */
 	rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
 				QPNP_PON_REASON1(pon), &pon_sts, 1);

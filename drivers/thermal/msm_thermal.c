@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -478,6 +478,48 @@ static ssize_t thermal_config_debugfs_write(struct file *file,
 				pr_debug("Remove voting to %s\n", #name);     \
 		}                                                             \
 	} while (0)
+
+/*+++ ASUS_BSP Show: reduce thermal log +++*/
+#define NUM_OF_CPU 8
+#define LOG_SAMPLE_RATE 20
+
+static DEFINE_MUTEX(log_mutex);
+static uint32_t cpu_error;
+static uint8_t cpu_log_count[NUM_OF_CPU];
+			
+static int limit_cpu_error_log(int cpu){
+	if(cpu_error&BIT(cpu)){
+		if(cpu_log_count[cpu] >= LOG_SAMPLE_RATE+1){
+			mutex_lock(&log_mutex);
+			cpu_log_count[cpu] = 1;
+			mutex_unlock(&log_mutex);
+			return false;
+		}
+		else{
+			mutex_lock(&log_mutex);
+			cpu_log_count[cpu]++;
+			mutex_unlock(&log_mutex);
+			return true;
+		}
+	}else{
+		/* First print */
+		mutex_lock(&log_mutex);
+		cpu_error |= BIT(cpu);
+		cpu_log_count[cpu] = 1;
+		mutex_unlock(&log_mutex);
+		return false;
+	}
+}
+
+static void unlimit_cpu_error_log(int cpu){
+	if(cpu_error&BIT(cpu)){
+		mutex_lock(&log_mutex);
+		cpu_error &= ~(BIT(cpu));
+		cpu_log_count[cpu] = 0;
+		mutex_unlock(&log_mutex);
+	}
+}
+/*--- ASUS_BSP Show: reduce thermal log ---*/
 
 static void uio_init(struct platform_device *pdev)
 {
@@ -1806,14 +1848,14 @@ static int vdd_restriction_apply_voltage(struct rail *r, int level)
 	/* level = -1: disable, level = 0,1,2..n: enable */
 	if (level == -1) {
 		ret = regulator_set_voltage(r->reg, r->min_level,
-			r->levels[r->num_levels - 1]);
+			INT_MAX);
 		if (!ret)
 			r->curr_level = -1;
 		pr_debug("Requested min level for %s. curr level: %d\n",
 				r->name, r->curr_level);
 	} else if (level >= 0 && level < (r->num_levels)) {
 		ret = regulator_set_voltage(r->reg, r->levels[level],
-			r->levels[r->num_levels - 1]);
+			INT_MAX);
 		if (!ret)
 			r->curr_level = level;
 		pr_debug("Requesting level %d for %s. curr level: %d\n",
@@ -2923,13 +2965,23 @@ static int __ref update_offline_cores(int val)
 			} else if (ret) {
 				cpus_offlined |= BIT(cpu);
 				pend_hotplug_req = true;
-				pr_err_ratelimited(
-					"Unable to online CPU%d. err:%d\n",
-					cpu, ret);
+				/*+++ ASUS_BSP Show: reduce thermal log +++*/
+				if(limit_cpu_error_log(cpu)){
+					pr_err_ratelimited(
+						"Unable to online CPU%d. err:%d\n",
+						cpu, ret);
+				}
+				/*--- ASUS_BSP Show: reduce thermal log ---*/
 			} else {
 				pr_debug("Onlined CPU%d\n", cpu);
 				trace_thermal_post_core_online(cpu,
 					cpumask_test_cpu(cpu, cpu_online_mask));
+				/*+++ ASUS_BSP Show: reduce thermal log +++*/
+				if(cpu_error&BIT(cpu)){
+					unlimit_cpu_error_log(cpu);
+					printk("Onlined CPU%d\n", cpu);
+				}
+				/*--- ASUS_BSP Show: reduce thermal log ---*/
 			}
 			unlock_device_hotplug();
 		}

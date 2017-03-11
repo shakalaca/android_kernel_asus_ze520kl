@@ -850,10 +850,7 @@ static int ion_status_proc_read(struct seq_file *buf, void *v)
 		cached_total += (1 << pool->order) * PAGE_SIZE * pool->low_count;
 	}
 
-	pr_info("-------------------------------------------------\n");
-	pr_info("uncached pool = %lu cached pool = %lu\n", uncached_total, cached_total);
-	pr_info("pool total (uncached + cached) = %lu\n", uncached_total + cached_total);
-	pr_info("-------------------------------------------------\n");
+	pr_info("[ION] uncached pool = %lu cached pool = %lu, pool total (uncached + cached) = %lu\n", uncached_total, cached_total, uncached_total + cached_total);
 
 	return seq_printf(buf, "%lu\n", uncached_total + cached_total);
 }

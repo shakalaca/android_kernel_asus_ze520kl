@@ -95,6 +95,7 @@ struct msm_flash_ctrl_t {
 
 	/* flash state */
 	enum msm_camera_flash_state_t flash_state;
+       enum msm_camera_flash_state_t flashlight_state;
 
 	uint8_t ref_count;
 };

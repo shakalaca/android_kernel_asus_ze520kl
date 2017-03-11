@@ -109,6 +109,7 @@ enum pmic_subtype {
 	PMI8950		= 17,
 	PMI8996		= 19,
 	PMI8937		= 55,
+	PMI8940		= 64,
 };
 
 enum wa_flags {
@@ -707,6 +708,7 @@ static char *charging_current[] = {
 	"CDP",
 	"DCP_1A",
 	"DCP_2A",
+	"PB_2A",
 	"RESERVE_390_1A",
 	"RESERVE_100_1A",
 	"ASUS_750K",
@@ -7812,6 +7814,7 @@ static int fg_hw_init(struct fg_chip *chip)
 		break;
 	case PMI8950:
 	case PMI8937:
+	case PMI8940:
 		rc = fg_8950_hw_init(chip);
 		/* Setup workaround flag based on PMIC type */
 		chip->wa_flag |= BCL_HI_POWER_FOR_CHGLED_WA;
@@ -8149,6 +8152,7 @@ static int fg_detect_pmic_type(struct fg_chip *chip)
 	case PMI8950:
 	case PMI8937:
 	case PMI8996:
+	case PMI8940:
 		chip->pmic_subtype = pmic_rev_id->pmic_subtype;
 		chip->pmic_revision[REVID_RESERVED]	= pmic_rev_id->rev1;
 		chip->pmic_revision[REVID_VARIANT]	= pmic_rev_id->rev2;
@@ -8260,6 +8264,7 @@ static const struct file_operations batt_id_fops = {
 	.open = batt_id_proc_open,
 	.write = batt_id_proc_write,
 	.read = seq_read,
+	.release = single_release,
 };
 
 void static create_batt_id_value_ohm(void) {
@@ -8321,6 +8326,7 @@ static const struct file_operations gaugeIC_status_fops = {
 	.open = gaugeIC_status_proc_open,
 	.write = gaugeIC_status_proc_write,
 	.read = seq_read,
+	.release = single_release,
 };
 void static create_gaugeIC_status_proc_file(void)
 {
@@ -8333,6 +8339,35 @@ void static create_gaugeIC_status_proc_file(void)
 	}
 }
 //[---] Create a file for BMMI adb interface
+/*+++BSP David proc gaugeUpdate Interface+++*/
+static int gaugeUpdate_proc_read(struct seq_file *buf, void *v)
+{
+	int result = 1, unused;
+
+	update_sram_data(the_chip, &unused);
+	BAT_DBG("%s: %d\n", __func__, result);
+	return seq_printf(buf, "%d\n", result);
+}
+static int gaugeUpdate_proc_open(struct inode *inode, struct  file *file)
+{
+    return single_open(file, gaugeUpdate_proc_read, NULL);
+}
+
+static void create_gaugeUpdate_proc_file(void)
+{
+	static const struct file_operations proc_fops = {
+		.owner = THIS_MODULE,
+		.open =  gaugeUpdate_proc_open,
+		.read = seq_read,
+		.release = single_release,
+	};
+	struct proc_dir_entry *proc_file = proc_create("driver/gaugeUpdate", 0440, NULL, &proc_fops);
+	if (!proc_file) {
+		BAT_DBG_E("[Proc]%s failed!\n", __FUNCTION__);
+	}
+	return;
+}
+/*---BSP David proc gaugeUpdate Interface---*/
 /*+++BSP David Thermal Tool Interface+++*/
 static int bat_testinfo_proc_read(struct seq_file *buf, void *v)
 {
@@ -8366,6 +8401,7 @@ void static create_bat_testinfo_proc_file(void)
 		.owner = THIS_MODULE,
 		.open = bat_testinfo_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/bq27520_test_info_dump", 0644, NULL, &proc_fops);
 
@@ -8395,6 +8431,7 @@ void static create_batTemp_proc_file(void)
 		.owner = THIS_MODULE,
 		.open = batTemp_proc_open,
 		.read = seq_read,
+		.release = single_release,
 	};
 	struct proc_dir_entry *proc_file = proc_create("driver/BatTemp", 0644, NULL, &proc_fops);
 
@@ -8787,6 +8824,7 @@ static int fg_probe(struct spmi_device *spmi)
 	create_gaugeIC_status_proc_file();
 	create_bat_testinfo_proc_file();
 	create_batTemp_proc_file();
+	create_gaugeUpdate_proc_file();
 	register_battery_version();
 	qpnp_smbcharger_polling_data_worker(0);//Start the status report of fuel gauge
 	return rc;

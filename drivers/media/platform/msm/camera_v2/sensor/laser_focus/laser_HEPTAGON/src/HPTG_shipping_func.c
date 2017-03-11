@@ -29,6 +29,8 @@ extern bool timedMeasure;
 extern bool ioctrl_close;
 extern bool repairing_state;
 
+extern bool CSCmode;
+
 static uint16_t debug_raw_range = 0;
 static uint16_t debug_raw_confidence = 0;
 
@@ -257,6 +259,10 @@ int Olivia_device_Load_Calibration_Value(struct msm_laser_focus_ctrl_t *dev_t){
 	/* Read Calibration data, addr is swapped */
 	indirect_addr = 0x10C0;
 
+	//notice that CSCmode changed at running time
+	if(CSCmode)
+		gotKdata = false;
+
 	if(!gotKdata){
 		status = Larua_Read_Calibration_Data_From_File(data, SIZE_OF_OLIVIA_CALIBRATION_DATA+CONFIDENCE_LENGTH);
 		if(status < 0){
@@ -270,11 +276,12 @@ int Olivia_device_Load_Calibration_Value(struct msm_laser_focus_ctrl_t *dev_t){
 		//swap confidence data back
 		swap_data(&data[SIZE_OF_OLIVIA_CALIBRATION_DATA]);
 		swap_data(&data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1]);	
-	
-		if(1300<data[SIZE_OF_OLIVIA_CALIBRATION_DATA]&&
-			1800>data[SIZE_OF_OLIVIA_CALIBRATION_DATA]&&
-			6500<data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1]&&
-			9000>data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1]){
+
+		//FAE suggest filtering-range
+		if(500<data[SIZE_OF_OLIVIA_CALIBRATION_DATA]&&
+			2047>data[SIZE_OF_OLIVIA_CALIBRATION_DATA]&&
+			2500<data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1]&&
+			10235>data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1]){
 			Settings[CONFIDENCE10] =  data[SIZE_OF_OLIVIA_CALIBRATION_DATA];
 			Settings[CONFIDENCE_THD] = data[SIZE_OF_OLIVIA_CALIBRATION_DATA+1];
 		}
@@ -355,7 +362,7 @@ int Read_Kdata_From_File(struct seq_file *vfile, uint16_t *cal_data){
 
 
 #define	MCPU_SWITCH_TIMEOUT_ms		15
-#define	MEASURE_TIME_OUT_ms		100
+#define	MEASURE_TIME_OUT_ms		120
 
 int Verify_Range_Data_Ready(struct msm_laser_focus_ctrl_t *dev_t){
 	
@@ -396,7 +403,7 @@ bool compareConfidence(uint16_t confidence, uint16_t Range, uint16_t thd, uint16
 
 uint16_t thd = 16;
 uint16_t limit = 1500;
-uint8_t thd_near_mm = 100; 
+uint8_t thd_near_mm = 0; 
 
 int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 	
@@ -406,8 +413,6 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 	int errcode;
 	int confirm=0;
 	
-	//int buf[3] = {0,0,0};
-
 	uint16_t IT_verify;
 
 	int confA = 1300;
@@ -418,13 +423,14 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 	limit = Settings[DISTANCE_THD];
 	thd_near_mm = Settings[NEAR_LIMIT];
 
-		CCI_I2C_WrByte(dev_t, 0x18, 0x06);
-		CCI_I2C_WrByte(dev_t, 0x19, 0x20);
-		CCI_I2C_RdWord(dev_t, I2C_DATA_PORT, &IT_verify);
+	CCI_I2C_WrByte(dev_t, 0x18, 0x06);
+	CCI_I2C_WrByte(dev_t, 0x19, 0x20);
+	CCI_I2C_RdWord(dev_t, I2C_DATA_PORT, &IT_verify);
 	
+	confA = Settings[CONFIDENCE10];
+	confC = Settings[CONFIDENCE_THD];
+	ItB =  Settings[IT];
 
-
-//
 	init_debug_raw_data();
 	
       	status = CCI_I2C_RdWord(dev_t, RESULT_REGISTER, &RawRange);
@@ -436,51 +442,33 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 
 	error_status = RawRange&ERROR_CODE_MASK;
 
-
+	CCI_I2C_RdWord(dev_t, 0x0A, &RawConfidence);
+	if (status < 0)
+            	return status;
+       
+	debug_raw_confidence = RawConfidence;
+	confidence_level = (RawConfidence&0x7ff0)>>4;
+	
 		
 	if(RawRange&VALID_DATA){
 			
 		if((error_status==NO_ERROR)){
-			Range = (RawRange&DISTANCE_MASK)>>2;
-
 			errcode = 0;
-			CCI_I2C_RdWord(dev_t, 0x0A, &RawConfidence);
-			if (status < 0)
-            		 	return status;
-       
-			debug_raw_confidence = RawConfidence;
-			confidence_level = (RawConfidence&0x7ff0)>>4;
-			//LOG_Handler(LOG_DBG,"%s: confidence level is: %d (Raw data:%d)\n", __func__, confidence_level, RawConfidence);
-
-/*
-		if(g_factory){
-			if(Sysfs_read_word_seq("/factory/Olivia_ConfA.txt",buf,3)>=0){
-				confA = buf[0];
-
-				confC = buf[1];
-
-				ItB = buf[2];	
-			}
-		}
-*/
-		confA = Settings[CONFIDENCE10];
-		confC = Settings[CONFIDENCE_THD];
-		ItB =  Settings[IT];
 		
-		if(IT_verify < ItB){
-			if(!confirm && confidence_level < confA){
-				errcode = RANGE_ERR_NOT_ADAPT;
-				Range =	OUT_OF_RANGE;
-				confirm = 15;
-			}	
-		}
-		else{
-			if(!confirm&&( ItB*(confidence_level) < ItB*confA- (IT_verify - ItB)*(confC - confA) )){
-				errcode = RANGE_ERR_NOT_ADAPT;
-				Range =	OUT_OF_RANGE;
-				confirm = 16;
+			if(IT_verify < ItB){
+				if(!confirm && confidence_level < confA){
+					errcode = RANGE_ERR_NOT_ADAPT;
+					Range =	OUT_OF_RANGE;
+					confirm = 15;
+				}	
 			}
-		}
+			else{
+				if(!confirm&&( ItB*(confidence_level) < ItB*confA- (IT_verify - ItB)*(confC - confA) )){
+					errcode = RANGE_ERR_NOT_ADAPT;
+					Range =	OUT_OF_RANGE;
+					confirm = 16;
+				}
+			}
 
 
 ////
@@ -515,8 +503,13 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 				Range =	OUT_OF_RANGE;	
 				confirm =13;				
 			}
-			
-		
+
+			if(!confirm && Range<100 && !g_factory){
+				errcode = RANGE_ADAPT_WITH_LESS_ACCURACY;
+				confirm =11;					
+			}
+
+				
 			if(!confirm){
 				errcode = RANGE_ADAPT;
 				confirm =11;					
@@ -577,25 +570,15 @@ int	Read_Range_Data(struct msm_laser_focus_ctrl_t *dev_t){
 
 
 
-
-	if(timedMeasure){
-		ErrCode2 = ErrCode1;
-		Range2 = Range1;
-	}
 	ErrCode1 = errcode;
 	Range1 = Range;
 
-
-
-
-
-if((Laser_log_cnt==LOG_SAMPLE_RATE-1)||(Laser_log_cnt==LOG_SAMPLE_RATE-2)||proc_log_cnt){
-	LOG_Handler(LOG_CDBG,"%s: conf(%d)  confA(%d) confC(%d) ItB(%d) IT_verify(0x2006:%d)\n", __func__, confidence_level, confA,confC,ItB,IT_verify);
-	LOG_Handler(LOG_CDBG, "%s: status(%d) thd(%d) limit(%d) near(%d) Confidence(%d)\n", __func__,
-		error_status>>13, thd, limit, thd_near_mm, confidence_level);
-	LOG_Handler(LOG_CDBG, "%s: Range(%d) ErrCode(%d) RawRange(%d) case(%d)\n", __func__,Range,errcode,(RawRange&DISTANCE_MASK)>>2, confirm);	
-}
-
+	if((Laser_log_cnt==LOG_SAMPLE_RATE-1)||(Laser_log_cnt==LOG_SAMPLE_RATE-2)||proc_log_cnt){
+		LOG_Handler(LOG_CDBG,"%s: conf(%d)  confA(%d) confC(%d) ItB(%d) IT_verify(0x2006:%d)\n", __func__, confidence_level, confA,confC,ItB,IT_verify);
+		LOG_Handler(LOG_CDBG, "%s: status(%d) thd(%d) limit(%d) near(%d) Confidence(%d)\n", __func__,
+			error_status>>13, thd, limit, thd_near_mm, confidence_level);
+		LOG_Handler(LOG_CDBG, "%s: Range(%d) ErrCode(%d) RawRange(%d) case(%d)\n", __func__,Range,errcode,(RawRange&DISTANCE_MASK)>>2, confirm);	
+	}
 
 	//reset cnt for case that use both proc and ioctrl
 	proc_log_cnt=0;
@@ -604,6 +587,7 @@ if((Laser_log_cnt==LOG_SAMPLE_RATE-1)||(Laser_log_cnt==LOG_SAMPLE_RATE-2)||proc_
 	
 
 }
+
 
 int Perform_measurement(struct msm_laser_focus_ctrl_t *dev_t)
 {

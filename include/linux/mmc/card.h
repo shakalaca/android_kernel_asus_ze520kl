@@ -473,6 +473,11 @@ struct mmc_card {
 //ASUS_BSP +++ Gavin_Chang "mmc cmd statistics"
 	struct mmc_cmd_stats *cmd_stats;
 //ASUS_BSP --- Gavin_Chang "mmc cmd statistics"
+//ASUS_BSP Deeo : mmc suspend stress test +++
+#ifdef CONFIG_MMC_SUSPENDTEST
+	unsigned int    sectors_changed;
+#endif
+//ASUS_BSP Deeo : mmc suspend stress test ---
 	struct notifier_block        reboot_notify;
 	enum mmc_pon_type pon_type;
 	u8 *cached_ext_csd;

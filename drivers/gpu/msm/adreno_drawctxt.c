@@ -123,6 +123,13 @@ stats:
 	dev_err(device->dev, "  context[%d]: submit times: %s\n",
 		context->id, buf);
 
+	dev_err(device->dev,"drawctxt->timestamp: %u, drawctxt->queued: %d drawctxt->queued_timestamp:%u, drawctxt->active_time:%lu\n",
+		drawctxt->timestamp, drawctxt->queued, drawctxt->queued_timestamp, drawctxt->active_time);
+
+	printk("context[%d] pid %d tid %d\n", context->id, context->proc_priv->pid, context->tid);
+	printk("context fault_count: %u fault_time: %lu\n",
+		context->fault_count, context->fault_time);
+
 	spin_unlock_bh(&drawctxt->lock);
 }
 

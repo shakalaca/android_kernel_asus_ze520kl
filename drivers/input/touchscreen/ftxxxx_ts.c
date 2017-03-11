@@ -1019,10 +1019,12 @@ int ftxxxx_read_tp_id(void)
 		}else if (g_asus_lcdID==2 || g_asus_lcdID==3){ //TM (Libra 5.5)
 			B_VenderID=(B_VenderID & 0xf0)|0x1;
 			printk("[touch]read lcdid=2 or 3 (TM), vender id= %x \n",B_VenderID);
-		}else if (g_asus_lcdID==0){//BOE (Leo 5.2)
+		}else if (g_asus_lcdID==0	|| g_asus_lcdID==5){//BOE (Leo 5.2)
 			B_VenderID=(B_VenderID & 0xf0)|0x4;
-			printk("[touch]read lcdid= 0 (Leo-BOE), vender id= %x \n",B_VenderID);
-
+			printk("[touch]read lcdid= 0 or 5 (BOE), vender id= %x \n",B_VenderID);
+			}else if(g_asus_lcdID==4){//AUO (Libra 5.5)
+			B_VenderID=(B_VenderID & 0xf0)|0x3;
+			printk("[touch]read lcdid= 4 (AUO), vender id= %x \n",B_VenderID);
 			}
 		if (err < 0)
 			B_VenderID = 0xFF;
@@ -1513,6 +1515,17 @@ static void focal_suspend_work(struct work_struct *work)
 				else
 					ftxxxx_write_reg(ts->client, 0xd1, 0x20);
 
+				printk("[Focal][Touch] %s : open gesture mode d2 = %x d5 = %x d6 = %x d7 = %x \n",
+					__func__, FTS_gesture_register_d2, FTS_gesture_register_d5, FTS_gesture_register_d6, FTS_gesture_register_d7);
+
+				ftxxxx_write_reg(ts->client, 0xd2, FTS_gesture_register_d2);
+
+				ftxxxx_write_reg(ts->client, 0xd5, FTS_gesture_register_d5);
+
+				ftxxxx_write_reg(ts->client, 0xd6, FTS_gesture_register_d6);
+
+				ftxxxx_write_reg(ts->client, 0xd7, FTS_gesture_register_d7);
+			}else{
 				printk("[Focal][Touch] %s : open gesture mode d2 = %x d5 = %x d6 = %x d7 = %x \n",
 					__func__, FTS_gesture_register_d2, FTS_gesture_register_d5, FTS_gesture_register_d6, FTS_gesture_register_d7);
 

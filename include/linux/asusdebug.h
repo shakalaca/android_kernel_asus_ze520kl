@@ -193,6 +193,13 @@ extern phys_addr_t RTB_BUFFER_PA;
 #define ASUS_EVTLOG_PATH ASUS_ASDF_BASE_DIR"ASUSEvtlog"
 #define ASUS_EVTLOG_STR_MAXLEN (256)
 #define ASUS_EVTLOG_MAX_ITEM (20)
+/*ASUS-BBSP SubSys Health Record+++*/
+#define SUBSYS_HEALTH_MEDICAL_TABLE_PATH "/asdf/SubSysMedicalTable"
+#define SUBSYS_NUM 5 /* MODEM, WCNSS, ADSP, VENUS, A506_ZAP */
+#define SUBSYS_W_MAXLEN (170) /*%04d-%02d-%02d %02d:%02d:%02d : [SSR]:name reason*/
+#define SUBSYS_R_MAXLEN (512)
+#define SUBSYS_C_MAXLEN (30)
+/*ASUS-BBSP SubSys Health Record---*/
 
 void save_all_thread_info(void);
 void delta_all_thread_info(void);
@@ -205,6 +212,7 @@ void get_last_shutdown_log(void);
 void printk_lcd(const char *fmt, ...);
 void printk_lcd_xy(int xx, int yy, unsigned int color, const char *fmt, ...);
 void ASUSEvtlog(const char *fmt, ...);
+void SubSysHealthRecord(const char *fmt, ...);/*ASUS-BBSP SubSys Health Record+*/
 //20101202_Bruno: added to get debug mask value
 bool isASUS_MSK_set(const char *fmt);
 #endif

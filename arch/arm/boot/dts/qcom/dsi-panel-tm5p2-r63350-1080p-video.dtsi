@@ -79,6 +79,6 @@
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,mdss-dsi-reset-sequence = <1 11>, <0 21>, <1 11>;
 		qcom,mdss-pan-physical-width-dimension = <65>; //width of picture in mm (for xdpi)
-		qcom,mdss-pan-physical-height-dimension = <115>; //height of picture in mm (for ydpi)
+		qcom,mdss-pan-physical-height-dimension = <116>; //height of picture in mm (for ydpi)
 	};
 };

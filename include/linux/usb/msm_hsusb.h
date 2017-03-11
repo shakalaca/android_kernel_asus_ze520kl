@@ -672,15 +672,13 @@ static inline int get_pm_runtime_counter(struct device *dev) { return -ENOSYS; }
 #endif
 
 #ifdef CONFIG_USB_DWC3_MSM
-int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
-							gfp_t gfp_flags);
+int msm_ep_config(struct usb_ep *ep, struct usb_request *request);
 int msm_ep_unconfig(struct usb_ep *ep);
 void dwc3_tx_fifo_resize_request(struct usb_ep *ep, bool qdss_enable);
 int msm_data_fifo_config(struct usb_ep *ep, phys_addr_t addr, u32 size,
 	u8 dst_pipe_idx);
 bool msm_dwc3_reset_ep_after_lpm(struct usb_gadget *gadget);
 int msm_dwc3_reset_dbm_ep(struct usb_ep *ep);
-int qusb_phy_run_dcd(struct usb_phy *phy);
 
 #else
 static inline int msm_data_fifo_config(struct usb_ep *ep, phys_addr_t addr,
@@ -689,8 +687,7 @@ static inline int msm_data_fifo_config(struct usb_ep *ep, phys_addr_t addr,
 	return -ENODEV;
 }
 
-static inline int msm_ep_config(struct usb_ep *ep, struct usb_request *request,
-							gfp_t gfp_flags)
+static inline int msm_ep_config(struct usb_ep *ep, struct usb_request *request)
 {
 	return -ENODEV;
 }

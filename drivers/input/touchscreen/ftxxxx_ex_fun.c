@@ -1080,6 +1080,7 @@ static ssize_t switch_gesture_mode_store(struct device *dev, struct device_attri
 
 		FTS_gesture_register_d6 = 0;
 
+		FTS_gesture_register_d5=0;
 		FTS_gesture_register_d7 = 0;
 
 		printk("[Focal][Touch] gesture_mode_disable ! \n");

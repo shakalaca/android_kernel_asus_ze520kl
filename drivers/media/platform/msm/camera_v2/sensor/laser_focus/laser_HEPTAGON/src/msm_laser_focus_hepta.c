@@ -91,17 +91,29 @@ struct msm_laser_focus_ctrl_t *get_laura_ctrl(void){
 bool device_state_invalid(void){
 
 	static uint8_t cnt=0;
+	static uint8_t cycle_cnt=0;
+	
 	bool ret=false;
 	
 	if(laura_t->device_state == MSM_LASER_FOCUS_DEVICE_OFF){
 		cnt++;
+		cycle_cnt++;
 		ret = true;
 	}	
-	else	cnt=0;
+	else{
+		cnt=0;
+		cycle_cnt=0;
+	}
 
-	if(ret && cnt<10)
-		LOG_Handler(LOG_ERR, "%s: Device without turn on: (%d) \n", __func__, laura_t->device_state);
-
+	
+	if(ret ){
+		if(cnt<10)
+			LOG_Handler(LOG_ERR, "%s: Device without turn on: (%d), cnt (%d) \n", __func__, laura_t->device_state, cnt);
+		if(cycle_cnt >= 50){
+			LOG_Handler(LOG_ERR, "%s: Device without turn on: (%d) for (%d) times \n", __func__, laura_t->device_state, cycle_cnt);
+			cycle_cnt=0;
+		}
+	}
 	return ret;
 }	
 
@@ -403,9 +415,11 @@ int HEPT_ReadRangeByProc(struct seq_file * buf, bool for_DIT){
 	if(!for_DIT)
 		proc_log_cnt++;
 	
-	if (laura_t->device_state == MSM_LASER_FOCUS_DEVICE_OFF){
-		LOG_Handler(LOG_ERR, "Device without turn on\n");
-		seq_printf(buf, "%d\n", 0);
+	if (device_state_invalid()){
+		if(!for_DIT){
+			LOG_Handler(LOG_ERR, "Device without turn on\n");
+			seq_printf(buf, "%d\n", 0);
+		}
 		mutex_ctrl(laura_t, MUTEX_UNLOCK);
 		return -EBUSY;
 	}

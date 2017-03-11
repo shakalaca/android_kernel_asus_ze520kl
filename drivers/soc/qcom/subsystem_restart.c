@@ -399,6 +399,7 @@ void subsys_save_reason(char *name, char *reason)
 
 	strlcpy(ssr_reason, reason, MAX_SSR_REASON_LEN);
 	ASUSEvtlog("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to ASUSEvtLog+*/
+	SubSysHealthRecord("[SSR]:%s %s\n", name, reason);/*ASUS-BBSP Add SSR inform to SubSysHealthRecord+*/
 }
 /*ASUS-BBSP Save SSR reason---*/
 

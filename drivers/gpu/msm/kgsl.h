@@ -28,6 +28,15 @@
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
 
+extern struct FENCEDEBUG *fencedebug;
+
+struct FENCEDEBUG{
+	unsigned long kgsl_cmdbatch_timer_starttime;
+	void *mod_timer_address;
+	void *drawctxtlock_address;
+	unsigned long drawctxtlock_starttime, drawctxtlock_endtime;
+};
+
 /* The number of memstore arrays limits the number of contexts allowed.
  * If more contexts are needed, update multiple for MEMSTORE_SIZE
  */
