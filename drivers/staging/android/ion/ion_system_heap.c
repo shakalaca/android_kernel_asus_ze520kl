@@ -867,6 +867,7 @@ static struct file_operations proc_ion_cache_pool_operations = {
 	.owner = THIS_MODULE,
 	.open = ion_status_proc_open,
 	.read = seq_read,
+	.release = single_release,
 	.write = NULL,
 };
 

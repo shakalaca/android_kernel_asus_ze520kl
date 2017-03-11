@@ -634,7 +634,7 @@
 				qcom,led-name = "led:flash_0";
 				qcom,default-led-trigger =
 						"flash0_trigger";
-				qcom,max-current = <900>;
+				qcom,max-current = <1000>;
 				qcom,duration = <800>;
 				qcom,id = <0>;
 				qcom,current = <625>;
@@ -645,7 +645,7 @@
 				qcom,led-name = "led:flash_1";
 				qcom,default-led-trigger =
 						"flash1_trigger";
-				qcom,max-current = <900>;
+				qcom,max-current = <1000>;
 				qcom,duration = <800>;
 				qcom,id = <1>;
 				qcom,current = <625>;
@@ -676,7 +676,7 @@
 				qcom,led-name = "led:switch";
 				qcom,default-led-trigger =
 						"switch_trigger";
-				qcom,max-current = <900>;
+				qcom,max-current = <1000>;
 				qcom,duration = <800>;
 				qcom,id = <2>;
 				qcom,current = <625>;
