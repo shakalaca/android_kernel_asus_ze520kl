@@ -294,6 +294,7 @@ static int proximity_turn_onoff(bool bOn)
 
 		/*check the min for auto calibration*/
 		if(true == g_ps_data->autok){
+			g_ps_data->crosstalk_diff = 0;
 			/*Stage 1 : check first 6 adc which spend about 50ms~100ms*/
 			ret = proximity_check_minCT();
 			if (ret < 0) {	
@@ -1505,6 +1506,7 @@ static int proximity_check_minCT(void)
 		g_ps_data->crosstalk_diff = crosstalk_diff;
 	}else{
 		log("crosstalk diff(%d) <= proximity autok min(%d)\n", crosstalk_diff, g_ps_data->g_ps_autok_min);
+		g_ps_data->crosstalk_diff = crosstalk_diff;
 	}
 	
 	return 0;

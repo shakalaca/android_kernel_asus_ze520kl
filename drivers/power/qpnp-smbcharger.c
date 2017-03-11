@@ -323,6 +323,7 @@ struct smbchg_chip {
 	bool 	enable_9V;			//Disable 9V
 	int 	CHG_TYPE_flag;		//CHG_TYPE
 	bool 	RE_APSD_flag;		//Set ads ready flag
+	bool    EXT_RE_APSD_flag;
 };
 
 enum CHG_TYPE {
@@ -3876,12 +3877,16 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 			usb_type_name, current_limit);
 	printk("[BAT][CHG] usb type = %s current_limit = %d\n", usb_type_name, current_limit);
 
-	if (current_limit == 1500 && chip->RE_APSD_flag == 0) {
+	if (current_limit == 1500 && chip->EXT_RE_APSD_flag == 0) {
 		printk("[BAT][CHG] Slow DCP insertion misjudge to SDP, rerun APSD\n");
-		chip->RE_APSD_flag = 1;
+		chip->EXT_RE_APSD_flag = 1;
 		rc = rerun_apsd(chip);
 		if (rc)
 			printk("Faild to rerun 'APSD', rc=%d\n", rc);
+		return;
+	} else if (current_limit == 1500 && chip->EXT_RE_APSD_flag == 1) {
+		chip->EXT_RE_APSD_flag = 0;
+		chip->CHG_TYPE_flag = FLOATING;
 	}
 
 	rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true,
@@ -5753,6 +5758,7 @@ void adapter_detect_judge_work(struct work_struct *work)
 	case POWER_SUPPLY_TYPE_USB_DCP:
 	case POWER_SUPPLY_TYPE_USB_HVDCP:
 	case POWER_SUPPLY_TYPE_USB_HVDCP_3:
+		smbchg_dev->EXT_RE_APSD_flag = 0;
 		if (strcmp(usb_type_name, "DCP") != 0) {
 			printk("[BAT][CHG] Not normal DCP, default 900mA ");
 			smbchg_dev->CHG_TYPE_flag = OTHERS;
@@ -9938,6 +9944,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 	smbchg_dev = chip;						//ASUS BSP Austin_Tseng
 	global_gpio = gpio_ctrl;				//ASUS BSP Austin_Tseng
 	chip->RE_APSD_flag = 0;
+	chip->EXT_RE_APSD_flag = 0;
 	chip->CHG_TYPE_flag = NONE;
 
 //ASUS BSP Austin_T: Request ADCPWREN-gpios01, DM_SW_EN-gpios134, ADC_VDD_EN-gpios99 & USBID_CTRL +++

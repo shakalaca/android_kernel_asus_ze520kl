@@ -1537,6 +1537,8 @@ int msm_camera_power_up(struct msm_camera_power_ctrl_t *ctrl,
 					power_setting->seq_val, ctrl->num_vreg);
 			//ASUS_BSP +++ PJ_Ma "Work around RGB HW issue"
 			if (power_setting->seq_val == CAM_VAF) {
+				pr_err("%s: calling rgbSensor_workAround, reg_name %s\n", __func__,
+					ctrl->cam_vreg[power_setting->seq_val].reg_name);
 				rgbSensor_workAround();
 				unlock_i2c_bus6();
 			}
