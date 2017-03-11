@@ -130,6 +130,7 @@ MODULE_PARM_DESC(dcp_max_current, "max current drawn for DCP charger");
 // ASUS_BSP "Add Unknown Charger Support"
 #if defined(CONFIG_UNKNOWN_CHARGER)
 extern void unknownChgNotify(void);
+static bool is_Unknown_Chg_detect = false;
 #endif
 
 struct dwc3_msm_req_complete {
@@ -2473,6 +2474,13 @@ static int dwc3_msm_power_set_property_usb(struct power_supply *psy,
             #if defined(CONFIG_UNKNOWN_CHARGER)
             // ASUS_BSP "Add Unknown Charger Support"
             dev_dbg(mdwc->dev, "VBUS absent, cancel unknown_chg_work\n");
+            // Recover PM Counter for UNKNOWN_CHARGER
+            if(is_Unknown_Chg_detect)
+            {
+				dev_info(mdwc->dev, "Decrease PM counter (UNKNOWN CHARGER)\n");
+				is_Unknown_Chg_detect = false;
+				pm_runtime_put_sync(mdwc->dev);
+			}
 			cancel_delayed_work(&mdwc->unknown_chg_work);
 			#endif
         }
@@ -2725,6 +2733,7 @@ static void asus_otg_chg_unknown_delay_work(struct work_struct *w)
 	if(test_bit(B_SESS_VLD, &mdwc->inputs)){
 		printk("%s: B_SESS_VLD is set, report unknown charger\n", __func__);
 		ASUSEvtlog("[USB] set_chg_mode: USB -> UNKNOWN_CHARGER\n");
+		is_Unknown_Chg_detect = true;
 		mdwc->chg_type = DWC3_UNKNOWN_CHARGER;
 		mdwc->otg_state = OTG_STATE_B_IDLE;
 		schedule_delayed_work(&mdwc->sm_work,0);
@@ -3649,7 +3658,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			#if defined(CONFIG_UNKNOWN_CHARGER)
 			// ASUS_BSP "Add Unknown Charger Support"
 			case DWC3_UNKNOWN_CHARGER:
-				dev_info(mdwc->dev, "Unknown Charger detect ( ssusb wakelock hold in case PC late reset )\n");
+				dev_info(mdwc->dev, "Unknown Charger detect [ Holding Wakelock ]\n");
 				unknownChgNotify();
 				break;
 			#endif
