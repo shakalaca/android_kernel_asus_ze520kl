@@ -377,36 +377,6 @@ int qpnp_pon_set_restart_reason(enum pon_restart_reason reason)
 	return rc;
 }
 EXPORT_SYMBOL(qpnp_pon_set_restart_reason);
-// ASUS_BSP +++
-int qpnp_pon_set_pmic(void)
-{
-	int rc = 0;
-	u16 pmic_address = 0xA048;
-	struct qpnp_pon *pon = sys_reset_dev;
-
-	if (!pon)
-		return 0;
-
-	if (pon->spmi->sid == 0) {
-		//
-		// Set 0x02 (Bit1) when watchdog occurs
-		//
-		rc = qpnp_pon_masked_write(pon, pmic_address, 0x02, 0x02);
-		
-		if (rc) {
-
-			dev_err(&pon->spmi->dev,
-				"Unable to write 0xA048 register rc: %d\n",
-				rc);
-			return rc;
-		}
-	}
-
-	return rc;
-}
-EXPORT_SYMBOL(qpnp_pon_set_pmic);
-
-// ASUS_BSP ---
 
 /*
  * qpnp_pon_check_hard_reset_stored - Checks if the PMIC need to

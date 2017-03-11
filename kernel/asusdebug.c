@@ -882,10 +882,6 @@ void save_last_shutdown_log(char* filename)
 		printk("[ASDF] save_last_shutdown_error: [%d]\n", file_handle);
     }
     // ASUS_BSP +++
-    // Check PMIC register 0xA048 Bit1
-    if (download_mode_value & 0x02) {
-        ASUSEvtlog("[Reboot] Watchdog reset\n");
-    }
     // Check PMIC register 0xA048 Bit0
     if (download_mode_value & 0x01) {
         ASUSEvtlog("[Reboot] Download mode\n");

@@ -84,6 +84,7 @@ static int g_module_vendor;
 #define vendor_module_syna 1
 #define vendor_module_gdix_316m 2
 #define vendor_module_gdix_5116m 3
+#define vendor_module_gdix_3266A 4
 
 struct fp_device_data {
 	/* +++ common part +++ */
@@ -1264,16 +1265,20 @@ static long gf_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 static irqreturn_t gf_irq(int irq, void *handle)
 {
 	struct fp_device_data *gf_dev = handle;
+        char temp = GF_NET_EVENT_IRQ;
 
 	printk("[Goodix] IRQ recive \n");
 
 	wake_lock_timeout(&gf_dev->wake_lock, msecs_to_jiffies(1000));
 
+        if (gf_dev->module_vendor == vendor_module_gdix_3266A) {
+                sendnlmsg(&temp);
+        }  else {
 #ifdef GF_FASYNC
-	if (gf_dev->async)
-		kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+        	if (gf_dev->async)
+        		kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
 #endif
-
+        }
 	return IRQ_HANDLED;
 }
 
@@ -1375,6 +1380,7 @@ static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 	struct fp_device_data *gf_dev;
 	struct fb_event *evdata = data;
 	unsigned int blank;
+        char temp = 0;
 
 	if (val != FB_EARLY_EVENT_BLANK)
 		return 0;
@@ -1387,11 +1393,16 @@ static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 		case FB_BLANK_POWERDOWN:
 			if (gf_dev->device_available == 1) {
 				gf_dev->fb_black = 1;
+                                if (gf_dev->module_vendor == vendor_module_gdix_3266A) {
+                                        temp = GF_NET_EVENT_FB_BLACK;
+                                        sendnlmsg(&temp);
+                                } else {
 #ifdef GF_FASYNC
-				if (gf_dev->async) {
-					kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
-				}
+                                        if (gf_dev->async) {
+                                        	kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+                                        }
 #endif
+                                }
 				/*device unavailable */
 				//gf_dev->device_available = 0;
 			}
@@ -1399,11 +1410,16 @@ static int goodix_fb_state_chg_callback(struct notifier_block *nb,
 		case FB_BLANK_UNBLANK:
 			if (gf_dev->device_available == 1) {
 				gf_dev->fb_black = 0;
+                                if (gf_dev->module_vendor == vendor_module_gdix_3266A) {
+                                        temp = GF_NET_EVENT_FB_UNBLACK;
+                                        sendnlmsg(&temp);
+                                } else {
 #ifdef GF_FASYNC
-				if (gf_dev->async) {
-					kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
-				}
+                                        if (gf_dev->async) {
+                                        	kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+                                        }
 #endif
+                                }
 				/*device available */
 				//gf_dev->device_available = 1;
 			}
@@ -1442,8 +1458,8 @@ static void gf_reg_key_kernel(struct fp_device_data *gf_dev)
 static int fingerpring_proc_read(struct seq_file *buf, void *v)
 {
 
-	if(g_module_vendor == 1) {
-		return seq_printf(buf, "%s\n", "SN");
+	if(g_module_vendor == 4) {
+		return seq_printf(buf, "%s\n", "GFA");
 	} else if (g_module_vendor == 2) {
 		return seq_printf(buf, "%s\n", "GF3");
 	} else if (g_module_vendor == 3) {
@@ -2063,20 +2079,27 @@ static int fp_check_vendor(struct fp_device_data *pdata)
 {
 
 	int status = 0;
+        int id1 = 0;
+        int id2 = 0;
 
-	status = gpio_get_value(pdata->FP_ID1) | gpio_get_value(pdata->FP_ID2);
+        id1 = gpio_get_value(pdata->FP_ID1);
+        id2 = gpio_get_value(pdata->FP_ID2);
+        
+	status = id1 | id2;
 
 	if (status) {
-		if (gpio_get_value(pdata->FP_ID1)) {
-			status = vendor_module_gdix_316m;			
-		} else {
+		if (!id2) {
+			status = vendor_module_gdix_316m;
+		} else if (!id1) {
 			status = vendor_module_gdix_5116m;
+		} else {
+			printk("[PF] get hwid fail, undefine  id  !\n");
 		}
 	} else {
-		status = vendor_module_syna;
+		status = vendor_module_gdix_3266A;
 	}
 
-	printk("[Jacob] ID1 = %d ID2 = %d ! \n", gpio_get_value(pdata->FP_ID1), gpio_get_value(pdata->FP_ID2));
+	printk("[Jacob] ID1 = %d ID2 = %d ! \n",  id1, id2);
 
 	return status;
 }
@@ -2330,6 +2353,7 @@ static int fp_sensor_probe(struct platform_device *pdev)
 			break;
 		case vendor_module_gdix_316m:
 		case vendor_module_gdix_5116m:
+		case vendor_module_gdix_3266A:
 			/* Claim our 256 reserved device numbers.  Then register a class
 			 * that will key udev/mdev to add/remove /dev nodes.  Last, register
 			 * the driver which manages those device numbers.
@@ -2468,6 +2492,7 @@ static int fp_sensor_probe(struct platform_device *pdev)
 		                       "gf", gf_dev);
 		#endif
 				if (!ret) {
+					fp_device->irq_enabled = 1;
 					enable_irq_wake(fp_device->irq);
 					gf_disable_irq(fp_device);
 				}
@@ -2556,6 +2581,12 @@ static int __init fp_sensor_init(void)
 		pr_warn("Failed to register SPI driver.\n");
 	}
 #endif
+#ifdef GF_NETLINK_ENABLE
+            if (g_module_vendor == vendor_module_gdix_3266A) {
+                netlink_init();
+            }
+#endif
+
 	printk("[FP] Driver INIT ---\n");
 
 	return err;
@@ -2564,7 +2595,11 @@ static int __init fp_sensor_init(void)
 static void __exit fp_sensor_exit(void)
 {
 	printk("[FP] Driver EXIT +++\n");
-	
+#ifdef GF_NETLINK_ENABLE
+        if (g_module_vendor == vendor_module_gdix_3266A) {
+            netlink_exit();
+        }
+#endif
 	platform_driver_unregister(&fp_sensor_driver);	
 	
 	printk("[FP] Driver EXIT ---\n");

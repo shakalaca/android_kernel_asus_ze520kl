@@ -354,6 +354,7 @@
 			qcom,cold-bat-decidegc = <15>;		//Cold battery temperature in decidegC.
 			qcom,hold-soc-while-full;
 			qcom,vbat-estimate-diff-mv = <250>;
+			qcom,fg-therm-delay-us = <40960>;
 
 			qcom,fg-soc@4000 {
 			status = "okay";

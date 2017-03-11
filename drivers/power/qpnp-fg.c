@@ -2004,6 +2004,8 @@ static u8 therm_delay_to_setpoint(u32 delay_us)
 		val = 7;
 	else
 		val = ilog2(delay_us / 10) - 7;
+
+	BAT_DBG("%s: %u\n", __func__, val);
 	return val << 5;
 }
 

@@ -228,6 +228,7 @@ struct bt_sock {
 	struct sock *parent;
 	unsigned long flags;
 	void (*skb_msg_name)(struct sk_buff *, void *, int *);
+	bdaddr_t src;
 };
 
 enum {

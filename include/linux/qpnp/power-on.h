@@ -66,9 +66,6 @@ int qpnp_pon_is_warm_reset(void);
 int qpnp_pon_trigger_config(enum pon_trigger_source pon_src, bool enable);
 int qpnp_pon_wd_config(bool enable);
 int qpnp_pon_set_restart_reason(enum pon_restart_reason reason);
-// ASUS_BSP +++
-int qpnp_pon_set_pmic(void);
-// ASUS_BSP ---
 bool qpnp_pon_check_hard_reset_stored(void);
 
 #else
@@ -90,12 +87,6 @@ static inline int qpnp_pon_set_restart_reason(enum pon_restart_reason reason)
 {
 	return -ENODEV;
 }
-// ASUS_BSP +++
-static inline int qpnp_pon_set_pmic(void)
-{
-	return -ENODEV;
-}
-// ASUS_BSP ---
 static inline bool qpnp_pon_check_hard_reset_stored(void)
 {
 	return false;
