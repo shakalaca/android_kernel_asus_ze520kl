@@ -1334,6 +1334,41 @@ void focal_glove_switch(bool plugin)
 
 }
 
+void focal_keypad_switch(bool plugin)
+{
+
+	if (ftxxxx_ts == NULL) {
+		printk("[Focal][TOUCH_ERR] %s : ftxxxx_ts is null, skip \n", __func__);
+		return;
+	}
+
+	wake_lock(&ftxxxx_ts->wake_lock);
+
+	mutex_lock(&ftxxxx_ts->g_device_mutex);
+
+	if (focal_init_success == 1) {
+		if (plugin) {
+			set_bit(KEY_BACK, ftxxxx_ts->input_dev->keybit);
+			set_bit(KEY_HOME, ftxxxx_ts->input_dev->keybit);
+			set_bit(KEY_MENU, ftxxxx_ts->input_dev->keybit);
+
+			ftxxxx_ts->keypad_mode_enable = 1;
+		} else {
+			clear_bit(KEY_BACK, ftxxxx_ts->input_dev->keybit);
+			clear_bit(KEY_HOME, ftxxxx_ts->input_dev->keybit);
+			clear_bit(KEY_MENU, ftxxxx_ts->input_dev->keybit);
+
+			ftxxxx_ts->keypad_mode_enable = 0;
+		}
+	}
+
+	mutex_unlock(&ftxxxx_ts->g_device_mutex);
+
+	wake_unlock(&ftxxxx_ts->wake_lock);
+
+	return;
+}
+
 static void focal_reset_ic_work(struct work_struct *work)
 {
 
@@ -2164,6 +2199,7 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ftxxxx_ts->dclick_mode_eable = 0;
 	ftxxxx_ts->swipeup_mode_eable = 0;
 	ftxxxx_ts->gesture_mode_eable = 0;
+	ftxxxx_ts->keypad_mode_enable = true;
 	ftxxxx_ts->irq_wakeup_eable = 0;
 	ftxxxx_ts->gesture_mode_type = 0;
 	ftxxxx_ts->pdata = pdata;
