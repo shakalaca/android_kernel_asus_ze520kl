@@ -1006,7 +1006,7 @@ static ssize_t switch_gesture_mode_store(struct device *dev, struct device_attri
 
 		for (tmp = 0; tmp < 7; tmp++) {
 			if (gesture_buf[tmp] == cmpchar) {
-				gesturetmp |= (1 << tmp);
+				gesturetmp |= (1 << (6 - tmp));
 			}
 		}
 
