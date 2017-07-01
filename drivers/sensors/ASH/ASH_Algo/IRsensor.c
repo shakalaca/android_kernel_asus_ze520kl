@@ -1186,6 +1186,7 @@ static IRsensor_ATTR mIRsensor_ATTR = {
 static void proximity_work(int state)
 {
 	int adc = 0;
+	int audio_mode = 0;
 
 	/* Get Proximity adc value */
 	adc= IRsensor_hw_client->mpsensor_hw->proximity_hw_get_adc();
@@ -1202,14 +1203,16 @@ static void proximity_work(int state)
 			log("[ISR] Proximity Detect Object Away. (adc = %d)\n", adc);
 			psensor_report_abs(IRSENSOR_REPORT_PS_AWAY);
 			g_ps_data->event_counter++;	/* --- For stress test debug --- */
-			if (2 == get_audiomode()) {
+			audio_mode = get_audiomode();
+			if (2 == audio_mode || 3 == audio_mode) {
 				ftxxxx_disable_touch(false);
 			}
 		} else if (IRSENSOR_INT_PS_CLOSE == state) {
 			log("[ISR] Proximity Detect Object Close. (adc = %d)\n", adc);		
 			psensor_report_abs(IRSENSOR_REPORT_PS_CLOSE);
 			g_ps_data->event_counter++;	/* --- For stress test debug --- */
-			if (2 == get_audiomode()) {
+			audio_mode = get_audiomode();
+			if (2 == audio_mode || 3 == audio_mode) {
 				ftxxxx_disable_touch(true);
 			}
 		} else {
@@ -1829,6 +1832,8 @@ static int __init IRsensor_init(void)
 	ASUS_IR_SENSOR_IRQ = IRsensor_gpio_register(g_i2c_client, &mIRsensor_GPIO);
 	if (ASUS_IR_SENSOR_IRQ < 0)
 		goto init_err;	
+		
+	lsensor_report_lux(-1);
 	log("Driver INIT ---\n");
 	return 0;
 

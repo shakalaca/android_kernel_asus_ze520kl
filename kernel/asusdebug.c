@@ -38,12 +38,21 @@ int entering_suspend = 0;
 phys_addr_t PRINTK_BUFFER_PA = 0xA0000000;
 void *PRINTK_BUFFER_VA;
 phys_addr_t RTB_BUFFER_PA = 0xA0000000 + SZ_1M;
+ulong logcat_buffer_index = 0; /* ASUS_BSP Paul +++ */
 extern struct timezone sys_tz;
 #define RT_MUTEX_HAS_WAITERS    1UL
 #define RT_MUTEX_OWNER_MASKALL  1UL
 struct mutex fake_mutex;
 struct completion fake_completion;
 struct rt_mutex fake_rtmutex;
+
+/* ASUS_BSP Paul +++ */
+static struct kset *dropbox_uevent_kset;
+static struct kobject *ssr_reason_kobj;
+static struct work_struct send_ssr_reason_dropbox_uevent_work;
+static void send_ssr_reason_dropbox_uevent_work_handler(struct work_struct *work);
+/* ASUS_BSP Paul --- */
+
 int asus_rtc_read_time(struct rtc_time *tm)
 {
 	struct timespec ts;
@@ -78,6 +87,20 @@ void *memset_nc(void *s, int c, size_t count)
 	return s;
 }
 EXPORT_SYMBOL(memset_nc);
+
+/*
+ *memcpy for non cached memory
+ */
+void *memcpy_nc(void *dest, const void *src, size_t n)
+{
+	int i = 0;
+	u8 *d = (u8 *)dest, *s = (u8 *)src;
+	for (i = 0; i < n; i++)
+		d[i] = s[i];
+
+	return dest;
+}
+EXPORT_SYMBOL(memcpy_nc);
 
 static char *g_phonehang_log;
 static int g_iPtr = 0;
@@ -744,10 +767,20 @@ void save_last_shutdown_log(char *filename)
     char buffer[] = {"Kernel panic"};
     int i;
     // ASUS_BSP ---
+	/* ASUS_BSP Paul +++ */
+	char *last_logcat_buffer;
+	ulong *printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2;
+	int fd_kmsg, fd_logcat;
+	ulong printk_buffer_index;
+	/* ASUS_BSP Paul --- */
 
 	t = cpu_clock(0);
 	nanosec_rem = do_div(t, 1000000000);
 	last_shutdown_log = (char *)PRINTK_BUFFER_VA;
+	/* ASUS_BSP Paul +++ */
+	last_logcat_buffer = (char *)LOGCAT_BUFFER;
+	printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2;
+	/* ASUS_BSP Paul --- */
 	sprintf(messages, ASUS_ASDF_BASE_DIR "LastShutdown_%lu.%06lu.txt",
 		(unsigned long)t,
 		nanosec_rem / 1000);
@@ -771,6 +804,39 @@ void save_last_shutdown_log(char *filename)
 	} else {
 		printk("[ASDF] save_last_shutdown_error: [%d]\n", file_handle);
 	}
+	/* ASUS_BSP Paul +++ */
+	printk_buffer_index = *(printk_buffer_slot2_addr + 1);
+	if ((printk_buffer_index < PRINTK_BUFFER_SLOT_SIZE) && (LAST_KMSG_SIZE < SZ_128K)) {
+		fd_kmsg = sys_open("/asdf/last_kmsg_16K", O_CREAT | O_RDWR | O_SYNC, S_IRUGO);
+		if (!IS_ERR((const void *)(ulong)fd_kmsg)) {
+			char *buf = kzalloc(LAST_KMSG_SIZE, GFP_ATOMIC);
+			if (!buf) {
+				printk("[ASDF] failed to allocate buffer for last_kmsg\n");
+			} else {
+				if (printk_buffer_index > LAST_KMSG_SIZE) {
+					memcpy(buf, last_shutdown_log + printk_buffer_index - LAST_KMSG_SIZE, LAST_KMSG_SIZE);
+				} else {
+					ulong part1 = LAST_KMSG_SIZE - printk_buffer_index;
+					ulong part2 = printk_buffer_index;
+					memcpy(buf, last_shutdown_log + PRINTK_BUFFER_SLOT_SIZE - part1, part1);
+					memcpy(buf + part1, last_shutdown_log, part2);
+				}
+				sys_write(fd_kmsg, buf, LAST_KMSG_SIZE);
+				kfree(buf);
+			}
+			sys_close(fd_kmsg);
+		} else {
+			printk("[ASDF] failed to save last shutdown log to last_kmsg\n");
+		}
+	}
+	fd_logcat = sys_open("/asdf/last_logcat_16K", O_CREAT | O_RDWR | O_SYNC, S_IRUGO);
+	if (!IS_ERR((const void *)(ulong)fd_logcat)) {
+		sys_write(fd_logcat, (unsigned char *)last_logcat_buffer, LOGCAT_BUFFER_SIZE);
+		sys_close(fd_logcat);
+	} else {
+		printk("[ASDF] failed to save last logcat to last_logcat\n");
+	}
+	/* ASUS_BSP Paul --- */
 	deinitKernelEnv();
 }
 
@@ -1076,6 +1142,8 @@ void SubSysHealthRecord(const char *fmt, ...)
 	/*printk("g_SubSys_W_Buf = %s", g_SubSys_W_Buf);*/
 
 	queue_work(ASUSEvtlog_workQueue, &subsys_w_Work);
+
+	schedule_work(&send_ssr_reason_dropbox_uevent_work); /* ASUS_BSP Paul +++ */
 }
 EXPORT_SYMBOL(SubSysHealthRecord);
 
@@ -1306,12 +1374,98 @@ static struct file_operations turnon_asusdebug_proc_ops = {
 	.write	= turnon_asusdebug_proc_write,
 };
 
+/* ASUS_BSP Paul +++ */
+static ssize_t last_logcat_proc_write(struct file *filp, const char __user *buff, size_t len, loff_t *off)
+{
+	char messages[1024];
+	char *last_logcat_buffer;
+
+	memset(messages, 0, sizeof(messages));
+
+	if (len > 1024)
+		len = 1024;
+	if (copy_from_user(messages, buff, len))
+		return -EFAULT;
+
+	last_logcat_buffer = (char *)LOGCAT_BUFFER;
+
+	if (logcat_buffer_index + len >= LOGCAT_BUFFER_SIZE) {
+		ulong part1 = LOGCAT_BUFFER_SIZE - logcat_buffer_index;
+		ulong part2 = len - part1;
+		memcpy_nc(last_logcat_buffer + logcat_buffer_index, messages, part1);
+		memcpy_nc(last_logcat_buffer, messages + part1, part2);
+		logcat_buffer_index = part2;
+	} else {
+		memcpy_nc(last_logcat_buffer + logcat_buffer_index, messages, len);
+		logcat_buffer_index += len;
+	}
+
+	return len;
+}
+
+static struct file_operations last_logcat_proc_ops = {
+	.write = last_logcat_proc_write,
+};
+
+static void send_ssr_reason_dropbox_uevent_work_handler(struct work_struct *work)
+{
+	if (ssr_reason_kobj) {
+		char uevent_buf[512];
+		char *envp[] = { uevent_buf, NULL };
+		snprintf(uevent_buf, sizeof(uevent_buf), "SSR_REASON=%s", g_SubSys_W_Buf);
+		kobject_uevent_env(ssr_reason_kobj, KOBJ_CHANGE, envp);
+	}
+}
+
+static void dropbox_uevent_release(struct kobject *kobj)
+{
+	kfree(kobj);
+}
+
+static struct kobj_type dropbox_uevent_ktype = {
+	.release = dropbox_uevent_release,
+};
+
+static int dropbox_uevent_init(void)
+{
+	int ret;
+
+	dropbox_uevent_kset = kset_create_and_add("dropbox_uevent", NULL, kernel_kobj);
+	if (!dropbox_uevent_kset) {
+		printk("%s: failed to create dropbox_uevent_kset", __func__);
+		return -ENOMEM;
+	}
+
+	ssr_reason_kobj = kzalloc(sizeof(*ssr_reason_kobj), GFP_KERNEL);
+	if (!ssr_reason_kobj) {
+		printk("%s: failed to create ssr_reason_kobj", __func__);
+		return -ENOMEM;
+	}
+
+	ssr_reason_kobj->kset = dropbox_uevent_kset;
+
+	ret = kobject_init_and_add(ssr_reason_kobj, &dropbox_uevent_ktype, NULL, "ssr_reason");
+	if (ret) {
+		printk("%s: failed to init ssr_reason_kobj", __func__);
+		kobject_put(ssr_reason_kobj);
+		return -EINVAL;
+	}
+
+	kobject_uevent(ssr_reason_kobj, KOBJ_ADD);
+
+	INIT_WORK(&send_ssr_reason_dropbox_uevent_work, send_ssr_reason_dropbox_uevent_work_handler);
+
+	return 0;
+}
+/* ASUS_BSP Paul --- */
+
 static int __init proc_asusdebug_init(void)
 {
 	proc_create("asusdebug", S_IALLUGO, NULL, &proc_asusdebug_operations);
 	proc_create("asusevtlog", S_IRWXUGO, NULL, &proc_asusevtlog_operations);
 	proc_create("asusevtlog-switch", S_IRWXUGO, NULL, &proc_evtlogswitch_operations);
 	proc_create("asusdebug-switch", S_IRWXUGO, NULL, &turnon_asusdebug_proc_ops);
+	proc_create("last_logcat", S_IWUGO, NULL, &last_logcat_proc_ops); /* ASUS_BSP Paul +++ */
 	PRINTK_BUFFER_VA = ioremap(PRINTK_BUFFER_PA, PRINTK_BUFFER_SIZE);
 	mutex_init(&mA);
 	fake_mutex.owner = current;
@@ -1330,6 +1484,8 @@ static int __init proc_asusdebug_init(void)
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	register_early_suspend(&asusdebug_early_suspend_handler);
 #endif
+
+	dropbox_uevent_init(); /* ASUS_BSP Paul +++ */
 
 	return 0;
 }

@@ -1779,7 +1779,12 @@ static void smbchg_usb_update_online_work(struct work_struct *work)
 						USER_EN_VOTER);
 	int online;
 
-	online = user_enabled && chip->usb_present && !chip->very_weak_charger;
+	//online = user_enabled && chip->usb_present && !chip->very_weak_charger;
+	online = user_enabled && chip->usb_present;
+	if (usb_alert_flag) {
+		printk("[BAT][CHG] USB_alert_flag = 1, set usb online = 0\n");
+		online = 0;
+	}
 
 	mutex_lock(&chip->usb_set_online_lock);
 	if (chip->usb_online != online) {
@@ -4641,7 +4646,8 @@ static ssize_t boot_completed_store(struct device *dev,
 		printk("[BAT][CHG] boot_completed_flag = 0\n");
 	} else if (tmp == 1) {
 		boot_completed_flag = true;
-		printk("[BAT][CHG] boot_completed_flag = 1\n");
+		printk("[BAT][CHG] boot_completed_flag = 1, check usb alert\n");
+		schedule_delayed_work(&USB_alert_work, 0);
 	}
 
 	return len;
@@ -5312,6 +5318,9 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	printk("[BAT][CHG] %s start\n", __FUNCTION__);
 
 	pr_smb(PR_STATUS, "triggered\n");
+
+	usb_alert_flag = 0;		//Austin_Tseng +++
+
 	smbchg_aicl_deglitch_wa_check(chip);
 	/* Clear the OV detected status set before */
 	if (chip->usb_ov_det)
@@ -5382,7 +5391,6 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	if (!chip->hvdcp_not_supported)
 		restore_from_hvdcp_detection(chip);
 
-	usb_alert_flag = 0;
 	usb_insertion_remove_init_setting(chip);	//ASUS BSP Austin_T : USB initials
 }
 
@@ -10245,18 +10253,16 @@ void USB_alert_detect_work(struct work_struct *work)
 {
 	int status;
 
-	if (boot_completed_flag) {
-		status = gpio_get_value(global_gpio->USB_TEMP_ALERT);
-		printk("[BAT][CHG] USB_alert boot completed, gpio90 status = %d\n", status);
-		usb_alert_flag = status;
-		switch_set_state(&usb_alert_dev, status);
-		if (status == 1 && is_smbchg_charging(smbchg_dev)) {
-			smbchg_usb_suspend(smbchg_dev, true);
-			printk("[BAT][CHG] usb_temp_alert_interrupt, suspend charger\n");
-		}
-	} else {
-		schedule_delayed_work(&USB_alert_work, msecs_to_jiffies(5000));
-		printk("[BAT][CHG] USB_alert boot NOT completed yet, delay 5s\n");
+
+	status = gpio_get_value(global_gpio->USB_TEMP_ALERT);
+	printk("[BAT][CHG] USB_alert boot completed, gpio90 status = %d\n", status);
+	usb_alert_flag = status;
+
+	switch_set_state(&usb_alert_dev, status);
+	if (status == 1 && is_smbchg_charging(smbchg_dev)) {
+		schedule_work(&smbchg_dev->usb_set_online_work);
+		smbchg_usb_suspend(smbchg_dev, true);
+		printk("[BAT][CHG] usb_temp_alert_interrupt, set usb_online = 0 and suspend charger\n");
 	}
 }
 
@@ -10264,7 +10270,6 @@ void USB_alert_detect_work(struct work_struct *work)
 //static struct timespec g_last_print_time;
 static irqreturn_t usb_temp_alert_interrupt(int irq, void *dev_id)
 {
-	//struct timespec mtNow;
 	int val = gpio_get_value_cansleep(global_gpio->USB_TEMP_ALERT);
 
 	printk("[CY]Get USB_Thermal_Status : %d\n", val);
@@ -10277,6 +10282,7 @@ static irqreturn_t usb_temp_alert_interrupt(int irq, void *dev_id)
 		smbchg_usb_suspend(smbchg_dev, true);
 		printk("[BAT][CHG] usb_temp_alert_interrupt, suspend charger\n");
 	}
+	schedule_work(&smbchg_dev->usb_set_online_work);
 
 	return IRQ_HANDLED;
 }
@@ -10305,7 +10311,6 @@ static int smbchg_probe(struct spmi_device *spmi)
 	struct qpnp_vadc_chip *vadc_dev = NULL, *vchg_vadc_dev = NULL;
 	const char *typec_psy_name;
 	int usb_alert_irq = 0;
-	int status = 0;
 	bool after_PR2 = 0;
 
 	printk("[BAT][CHG] %s start\n", __FUNCTION__);
@@ -10713,12 +10718,6 @@ static int smbchg_probe(struct spmi_device *spmi)
 		}
 
 		register_usb_alert();
-
-		status = gpio_get_value(gpio_ctrl->USB_TEMP_ALERT);
-		printk("[BAT][CHG] gpio90 status = %d\n", status);
-		//switch_set_state(&usb_alert_dev, status);
-		schedule_delayed_work(&USB_alert_work, 0);
-
 		usb_alert_irq = gpio_to_irq(gpio_ctrl->USB_TEMP_ALERT);
 		if (usb_alert_irq < 0) {
 			printk("[CY]%s: gpio_to_irq ERROR(%d).\n", __FUNCTION__, usb_alert_irq);

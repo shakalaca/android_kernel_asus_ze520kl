@@ -104,7 +104,7 @@
 		asus_debug_mem: asus_debug_region@0 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0xA0000000 0x0 0x00200000>;
+			reg = <0x0 0xA0000000 0x0 0x00300000>;
 		};
 	};
 

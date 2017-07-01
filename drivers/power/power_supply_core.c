@@ -139,9 +139,16 @@ EXPORT_SYMBOL_GPL(power_supply_set_present);
  * @psy:	the power supply to control
  * @enable:	sets online property of power supply
  */
+extern bool usb_alert_flag;		//Austin_Tseng +++
 int power_supply_set_online(struct power_supply *psy, bool enable)
 {
-	const union power_supply_propval ret = {enable,};
+	union power_supply_propval ret = {enable,};
+
+	if (usb_alert_flag) {
+		printk("[BAT][CHG] USB ALERT! Force online = 0\n");
+		enable = false;
+		ret.intval = enable;
+	}
 
 	if (psy->set_property)
 		return psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE,

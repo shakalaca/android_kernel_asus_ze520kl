@@ -261,6 +261,7 @@ static void *memcpy_nc(void *dest, const void *src, size_t n)
 static int write_to_asus_log_buffer(const char *text, size_t text_len,
 				enum log_flags lflags) {
 	static ulong log_write_index = 0; /* the index to write the log in asus log buffer */
+	ulong *printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2; /* ASUS_BSP Paul +++ */
 
 	if (!asus_log_buf) {
 		return -1;
@@ -285,6 +286,8 @@ static int write_to_asus_log_buffer(const char *text, size_t text_len,
 		asus_log_buf[log_write_index++] = '\n';
 		log_write_index = log_write_index % PRINTK_BUFFER_SLOT_SIZE;
 	}
+
+	*(printk_buffer_slot2_addr + 1) = log_write_index; /* ASUS_BSP Paul +++ */
 
 	return text_len;
 }

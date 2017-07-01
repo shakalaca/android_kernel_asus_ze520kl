@@ -8,7 +8,7 @@
 extern phys_addr_t PRINTK_BUFFER_PA;
 extern void *PRINTK_BUFFER_VA;
 extern phys_addr_t RTB_BUFFER_PA;
-#define PRINTK_BUFFER_SIZE      (0x00200000)
+#define PRINTK_BUFFER_SIZE      (0x00300000)
 
 #define PRINTK_BUFFER_MAGIC     (0xFEEDBEEF)
 #define PRINTK_BUFFER_SLOT_SIZE (0x00040000)
@@ -19,6 +19,11 @@ extern phys_addr_t RTB_BUFFER_PA;
 #define PHONE_HANG_LOG_BUFFER   ((void *)((ulong)PRINTK_BUFFER_VA + (ulong)2*PRINTK_BUFFER_SLOT_SIZE) - (ulong)0x3F000)
 #define PHONE_HANG_LOG_SIZE     (0x00080000 + 0x3F000)
 
+/* ASUS_BSP Paul +++ */
+#define LOGCAT_BUFFER           ((void *)((ulong)PRINTK_BUFFER_VA + (ulong)SZ_2M))
+#define LOGCAT_BUFFER_SIZE      (SZ_16K)
+#define LAST_KMSG_SIZE          (SZ_16K)
+/* ASUS_BSP Paul --- */
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 ////                  Eventlog mask mechanism

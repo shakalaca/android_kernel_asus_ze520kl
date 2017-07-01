@@ -673,7 +673,7 @@ static int qpnp_typec_request_irqs(struct qpnp_typec_chip *chip)
 	REQUEST_IRQ(chip, chip->dfp_detect, "dfp-detect", dfp_detect_handler,
 			flags, true, rc);
 	REQUEST_IRQ(chip, chip->vbus_err, "vbus-err", vbus_err_handler,
-			flags, true, rc);
+			flags, false, rc);
 	REQUEST_IRQ(chip, chip->vconn_oc, "vconn-oc", vconn_oc_handler,
 			flags, true, rc);
 
@@ -1019,7 +1019,7 @@ static int qpnp_typec_probe(struct spmi_device *spmi)
 
 //ASUS BSP Austin_T : Set CABLE_RP_CONNECT_THRESHOLD 0.6V +++
 	rc = qpnp_typec_masked_write(chip, TYPEC_SW_CTL_REG(chip->base),
-		CABLE_RP_CONNECT_THRESHOLD_BIT, CABLE_RP_CONNECT_THRESHOLD_BIT);
+		CABLE_RP_CONNECT_THRESHOLD_BIT, 0);
 	if (rc < 0)
 		pr_err("Couldn't set CABLE_RP_CONNECT_THRESHOLD rc = %d\n", rc);
 //ASUS BSP Austin_T : Set CABLE_RP_CONNECT_THRESHOLD 0.6V ---

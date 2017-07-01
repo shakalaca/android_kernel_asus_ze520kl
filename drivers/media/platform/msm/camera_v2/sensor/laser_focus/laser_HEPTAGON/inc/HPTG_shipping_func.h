@@ -118,6 +118,7 @@ do{								\
 #define RANGE_ERR_OTHER 14
 #define RANGE_ERR_OTHER2 15  // for ambient local 
 #define RANGE_ADAPT_WITH_LESS_ACCURACY	64
+#define RANGE_WARNING_DATA_NOT_READY 65
 
 /* MCPU status */
 #define MCPU_ON 0

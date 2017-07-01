@@ -83,7 +83,7 @@ extern void dpNotify(void);
 //ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 static int diag_enable = 0;
 //ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
-static int persist_ready = 0;
+static int boot_lock = 1;
 
 extern int getMACConnect(void);
 extern int resetHostTypeChanged(void);
@@ -3416,9 +3416,6 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	int is_ffs;
 	int ffs_enabled = 0;
 
-	if(!persist_ready)
-		return -EBUSY;
-
 	mutex_lock(&dev->mutex);
 
 	if (dev->enabled) {
@@ -3548,6 +3545,9 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 
 	if (!cdev)
 		return -ENODEV;
+
+	if(boot_lock)
+		return -EBUSY;
 
 	mutex_lock(&dev->mutex);
 
@@ -3684,15 +3684,17 @@ static ssize_t diag_store(struct device *pdev, struct device_attribute *attr,
 }
 //ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
 
-static ssize_t pready_show(struct device *pdev, struct device_attribute *attr,
+static ssize_t boot_lock_show(struct device *pdev, struct device_attribute *attr,
 			   char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", persist_ready);
+	return snprintf(buf, PAGE_SIZE, "%d\n", boot_lock);
 }
-static ssize_t pready_store(struct device *pdev, struct device_attribute *attr,
+static ssize_t boot_lock_store(struct device *pdev, struct device_attribute *attr,
 			    const char *buff, size_t size)
 {
-	sscanf(buff, "%d", &persist_ready);
+	sscanf(buff, "%d", &boot_lock);
+	if(!boot_lock)
+		printk("%s: boot unlock.\n",__func__);
 	return size;
 }
 
@@ -3822,7 +3824,7 @@ static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 static DEVICE_ATTR(diag, S_IRUGO | S_IWUSR, diag_show, diag_store);
 //ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
 
-static DEVICE_ATTR(pready, S_IRUGO | S_IWUSR, pready_show, pready_store);
+static DEVICE_ATTR(boot_lock, S_IRUGO | S_IWUSR, boot_lock_show, boot_lock_store);
 
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_idVendor,
@@ -3840,7 +3842,7 @@ static struct device_attribute *android_usb_attributes[] = {
 //ASUS_BSP+++ "[USB][NA][Spec] add QCOM USB Support in kernel"
 	&dev_attr_diag,
 //ASUS_BSP--- "[USB][NA][Spec] add QCOM USB Support in kernel"
-	&dev_attr_pready,
+	&dev_attr_boot_lock,
 	&dev_attr_up_pm_qos_sample_sec,
 	&dev_attr_down_pm_qos_sample_sec,
 	&dev_attr_up_pm_qos_threshold,
