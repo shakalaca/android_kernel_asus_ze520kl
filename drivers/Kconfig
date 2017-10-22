@@ -198,7 +198,6 @@ source "drivers/firmware/Kconfig"
 
 source "drivers/bif/Kconfig"
 
-source "drivers/gud/Kconfig"
 
 config TEXURA_USERDEBUG
 	bool "Texura userdebug module for ASUS ZE500KL"
