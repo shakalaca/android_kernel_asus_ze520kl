@@ -20,9 +20,10 @@
 #include <asm/io.h>
 #include <linux/export.h>
 
+#include <linux/module.h>
 #include <linux/slab.h>
 extern int g_user_dbg_mode;
-
+ 
 #include <linux/rtc.h>
 #include "locking/rtmutex_common.h"
 // ASUS_BSP +++
@@ -1458,6 +1459,23 @@ static int dropbox_uevent_init(void)
 	return 0;
 }
 /* ASUS_BSP Paul --- */
+struct work_struct __dumpSurfaceflinger_work;
+void dumpSurfaceflinger_func(struct work_struct *work)
+{
+
+	int ret = -1;
+	char cmdpath[] = "/system/bin/recvkernelevt";
+	char *argv[8] = {cmdpath, "surfaceflinger",NULL};
+	char *envp[] = {"HOME=/", "PATH=/sbin:/system/bin:/system/sbin:/vendor/bin", NULL};
+	printk("[Debug+++] dumpthread surfaceflinger  on userspace\n");
+	ret = call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
+	printk("[Debug---] dumpthread surfaceflinger  on userspace, ret = %d\n", ret);
+
+	return;
+	
+}
+
+
 
 static int __init proc_asusdebug_init(void)
 {
@@ -1480,7 +1498,7 @@ static int __init proc_asusdebug_init(void)
 	/*ASUS-BBSP SubSys Health Record---*/
 
 	ASUSEvtlog_workQueue = create_singlethread_workqueue("ASUSEVTLOG_WORKQUEUE");
-
+	INIT_WORK(&__dumpSurfaceflinger_work, dumpSurfaceflinger_func);
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	register_early_suspend(&asusdebug_early_suspend_handler);
 #endif
