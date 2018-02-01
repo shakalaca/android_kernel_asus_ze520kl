@@ -430,6 +430,7 @@ static long audio_cal_shared_ioctl(struct file *file, unsigned int cmd,
 	case AUDIO_GET_CALIBRATION:
 	case AUDIO_POST_CALIBRATION:
 		break;
+
 	/* ASUS_BSP Paul +++ */
 	case AUDIO_SET_CODEC_REG:
 		mutex_lock(&audio_cal.cal_mutex[CODEC_REG_TYPE]);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -626,7 +626,7 @@ static eHalStatus hdd_ScanRequestCallback(tHalHandle halHandle, void *pContext,
     
     ENTER();
 
-    hddLog(LOGW,"%s called with halHandle = %p, pContext = %p, scanID = %d,"
+    hddLog(LOGW,"%s called with halHandle = %pK, pContext = %pK, scanID = %d,"
            " returned status = %d", __func__, halHandle, pContext,
            (int) scanId, (int) status);
 
@@ -636,7 +636,7 @@ static eHalStatus hdd_ScanRequestCallback(tHalHandle halHandle, void *pContext,
        do some quick sanity before proceeding */
     if (pAdapter->dev != dev)
     {
-       hddLog(LOGW, "%s: device mismatch %p vs %p",
+       hddLog(LOGW, "%s: device mismatch %pK vs %pK",
                __func__, pAdapter->dev, dev);
         return eHAL_STATUS_SUCCESS;
     }
@@ -837,7 +837,24 @@ int __iw_set_scan(struct net_device *dev, struct iw_request_info *info,
        scanRequest.uIEFieldLen = pHddCtx->scan_info.scanAddIE.length;
        scanRequest.pIEField = pHddCtx->scan_info.scanAddIE.addIEdata;
    }
+   if (pHddCtx->spoofMacAddr.isEnabled &&
+       pHddCtx->cfg_ini->enableMacSpoofing == 1)
+   {
+        hddLog(LOG1, FL("MAC Spoofing enabled for current scan"));
+        /*
+         * Updating SelfSta Mac Addr in TL which will be used to get
+         * staidx to fill TxBds for probe request during current scan
+         */
+        status = WLANTL_updateSpoofMacAddr(pHddCtx->pvosContext,
+             &pHddCtx->spoofMacAddr.randomMacAddr,
+             &pAdapter->macAddressCurrent);
 
+        if (status != eHAL_STATUS_SUCCESS)
+        {
+           hddLog(LOGE, FL("Failed to update MAC Spoof Addr in TL"));
+           goto error;
+        }
+   }
    status = sme_ScanRequest( (WLAN_HDD_GET_CTX(pAdapter))->hHal, pAdapter->sessionId,&scanRequest, &scanId, &hdd_ScanRequestCallback, dev ); 
    if (!HAL_STATUS_SUCCESS(status))
    {
@@ -997,7 +1014,7 @@ static eHalStatus hdd_CscanRequestCallback(tHalHandle halHandle, void *pContext,
     VOS_STATUS vos_status = VOS_STATUS_SUCCESS;
     ENTER();
 
-    hddLog(LOG1,"%s called with halHandle = %p, pContext = %p, scanID = %d,"
+    hddLog(LOG1,"%s called with halHandle = %pK, pContext = %pK, scanID = %d,"
            " returned status = %d", __func__, halHandle, pContext,
             (int) scanId, (int) status);
 

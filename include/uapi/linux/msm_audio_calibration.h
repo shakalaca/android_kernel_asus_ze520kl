@@ -58,6 +58,7 @@
 #define AUDIO_GET_HS_IMP			_IOWR(CAL_IOCTL_MAGIC, \
 							230, void *)
 /* ASUS_BSP Eric --- */
+
 //Jacob cherry pick ZE500KL change +++
 #define AUDIO_SET_MODE _IOWR(CAL_IOCTL_MAGIC, 225, void *)
 extern int get_audiomode(void);

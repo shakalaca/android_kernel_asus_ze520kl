@@ -1318,7 +1318,7 @@ mutex_lock(&g_ir_lock);
 	/* Read INT_FLAG will clean the interrupt */
 	ASUS_IR_SENSOR_INT = IRsensor_hw_client->IRsensor_hw_get_interrupt();
 	if(ASUS_IR_SENSOR_INT <0){
-		err("IRsensor_hw_get_interrupt ERROR\n");
+//		err("IRsensor_hw_get_interrupt ERROR\n");
 		goto ist_err;
 	}
 

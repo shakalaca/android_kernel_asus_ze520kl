@@ -136,7 +136,6 @@
 		qcom,page7 = <1 0x3d81 2 0x01 1 10>;
 		qcom,poll7 = <0 0x0 2 0x0 1 1>;
 		qcom,mem7 = <1536 0x7010 2 0 1 0>;
-
 		cam_vdig-supply = <&pm8953_l23>;
 		cam_vana-supply = <&pm8953_l22>;
 		cam_vio-supply = <&pm8953_l6>;
@@ -320,7 +319,6 @@
 		clock-names = "cam_src_clk", "cam_clk";
 		qcom,clock-rates = <24000000 0>;
 	};
-
 	ois0: qcom,ois1@4C {
                 cell-index = <0>;
                 reg = <0x4C>;

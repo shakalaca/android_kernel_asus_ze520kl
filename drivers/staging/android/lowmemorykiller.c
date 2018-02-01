@@ -169,7 +169,7 @@ static int lmk_vmpressure_notifier(struct notifier_block *nb,
 
 	if (!enable_adaptive_lmk)
 		return 0;
-	if(vmpressure_file_min != 81250) //2G RAM
+	if(vmpressure_file_min != 132640) //2G RAM
 	{
 		if (pressure >= 95) {
 			other_file = global_page_state(NR_FILE_PAGES) + zcache_pages() -
@@ -519,7 +519,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	}
 	
 	// 3/4G RAM to prevent prev_app to be killed by a_lmk
-	if(vmpressure_file_min == 81250) 
+	if(vmpressure_file_min == 132640) 
 		adj_max_shift = 701;
 	
 	previous_min_score_adj = min_score_adj;
@@ -529,7 +529,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 	}
 	// if the kswapd comes, directly do the lowmemkiller. others, check if the justkilled/killnothing timeout to sleep or proceed to kill processes.
 	// if PowerManagerSer calls, do not wait, and directly run the killer
-	//if(vmpressure_file_min == 81250) // 3/4G RAM
+	//if(vmpressure_file_min == 132640) // 3/4G RAM
 	{
 		if((min_score_adj >= justkilled_adj) && time_before_eq(jiffies, lowmem_justkilled_timeout))
 		{
@@ -577,7 +577,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		200 : PERCEPTIBLE_APP_ADJ
 		100 : VISIBLE_APP_ADJ
 	*/
-	if(vmpressure_file_min == 81250) // 3/4G RAM
+	if(vmpressure_file_min == 132640) // 3/4G RAM
 	{
 		if(bIsAdapterLMK)
 			nTaskMax = 2;
@@ -796,7 +796,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 			selected_tasksize = get_mm_rss(selected->mm);
 		task_unlock(selected);
 		// when a_lmk is activated, do not kill until the app is larger than 80MB
-		if(vmpressure_file_min == 81250) // 3/4G RAM
+		if(vmpressure_file_min == 132640) // 3/4G RAM
 		{
 			if (bIsAdapterLMK && (selected_tasksize * ((long)PAGE_SIZE /1024 )< (long)(80*1024)))
 			{
@@ -1054,6 +1054,44 @@ static const struct kparam_array __param_arr_adj = {
 };
 #endif
 
+//ASUS BSP: add for customizing minfree write function +++
+static int lowmem_minfree_array_set(const char *val, const struct kernel_param *kp)
+{
+	int ret;
+	if (vmpressure_file_min != 132640) {
+		ret = param_array_ops.set(val, kp);
+		lowmem_justkilled_timeout = 0;
+		lowmem_killNothing_timeout = 0;
+		return ret;
+	} else
+		return 0;
+}
+
+static int lowmem_minfree_array_get(char *buffer, const struct kernel_param *kp)
+{
+	return param_array_ops.get(buffer, kp);
+}
+
+static void lowmem_minfree_array_free(void *arg)
+{
+	param_array_ops.free(arg);
+}
+
+static struct kernel_param_ops lowmem_minfree_array_ops = {
+	.set = lowmem_minfree_array_set,
+	.get = lowmem_minfree_array_get,
+	.free = lowmem_minfree_array_free,
+};
+
+static const struct kparam_array __param_arr_minfree_lowram = {
+	.max = ARRAY_SIZE(lowmem_minfree),
+	.num = &lowmem_minfree_size,
+	.ops = &param_ops_uint,
+	.elemsize = sizeof(lowmem_minfree[0]),
+	.elem = lowmem_minfree,
+};
+//ASUS BSP: add for customizing minfree write function ---
+
 module_param_named(cost, lowmem_shrinker.seeks, int, S_IRUGO | S_IWUSR);
 #ifdef CONFIG_ANDROID_LOW_MEMORY_KILLER_AUTODETECT_OOM_ADJ_VALUES
 module_param_cb(adj, &lowmem_adj_array_ops,
@@ -1063,6 +1101,9 @@ __MODULE_PARM_TYPE(adj, "array of short");
 module_param_array_named(adj, lowmem_adj, short, &lowmem_adj_size,
 			 S_IRUGO | S_IWUSR);
 #endif
+module_param_cb(minfree_lowram, &lowmem_minfree_array_ops,
+		.arr = &__param_arr_minfree_lowram, S_IRUGO | S_IWUSR);
+__MODULE_PARM_TYPE(minfree_lowram, "array of uint");
 module_param_array_named(minfree, lowmem_minfree, uint, &lowmem_minfree_size,
 			 S_IRUGO | S_IWUSR);
 module_param_named(debug_level, lowmem_debug_level, uint, S_IRUGO | S_IWUSR);

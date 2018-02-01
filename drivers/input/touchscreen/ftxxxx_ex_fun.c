@@ -903,32 +903,6 @@ static ssize_t switch_glove_mode_show(struct device *dev, struct device_attribut
 	return sprintf(buf, "%d \n", ftxxxx_ts->glove_mode_eable);
 }
 
-static ssize_t switch_keyboard_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int tmp = 0;
-
-	tmp = buf[0] - 48;
-
-	if (tmp == 0) {
-
-		focal_keyboard_switch(0);
-
-	} else if (tmp == 1) {
-
-		focal_keyboard_switch(1);
-
-	}
-
-	return count;
-
-}
-
-static ssize_t switch_keyboard_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-
-	return sprintf(buf, "%d \n", ftxxxx_ts->keyboard_mode_eable);
-}
-
 static ssize_t switch_cover_mode_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	int tmp = 0;
@@ -3290,7 +3264,6 @@ static DEVICE_ATTR(update_progress, Focal_RW_ATTR, update_progress_show, NULL);
 static DEVICE_ATTR(set_reset_pin_level, Focal_RW_ATTR, set_reset_pin_level_show, set_reset_pin_level_store);
 static DEVICE_ATTR(glove_mode, Focal_RW_ATTR, switch_glove_mode_show, switch_glove_mode_store);
 static DEVICE_ATTR(cover_mode, Focal_RW_ATTR, switch_cover_mode_show, switch_cover_mode_store);
-static DEVICE_ATTR(keyboard_enable, Focal_RW_ATTR, switch_keyboard_mode_show, switch_keyboard_mode_store);
 static DEVICE_ATTR(dclick_mode, Focal_RW_ATTR, switch_dclick_mode_show, switch_dclick_mode_store);
 static DEVICE_ATTR(swipeup_mode, Focal_RW_ATTR, switch_swipeup_mode_show, switch_swipeup_mode_store);
 static DEVICE_ATTR(gesture_mode, Focal_RW_ATTR, switch_gesture_mode_show, switch_gesture_mode_store);
@@ -3339,7 +3312,6 @@ static struct attribute *ftxxxx_attributes[] = {
 	&dev_attr_update_progress.attr,
 	&dev_attr_set_reset_pin_level.attr,
 	&dev_attr_glove_mode.attr,
-	&dev_attr_keyboard_enable.attr,
 	&dev_attr_cover_mode.attr,
 	&dev_attr_gesture_mode.attr,
 	&dev_attr_keypad_mode.attr,

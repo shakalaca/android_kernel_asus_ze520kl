@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014, 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -519,6 +519,10 @@ typedef enum
 #endif /* FEATURE_WLAN_ESE && FEATURE_WLAN_ESE_UPLOAD */
     eCSR_ROAM_UPDATE_MAX_RATE_IND,
     eCSR_ROAM_LOST_LINK_PARAMS_IND,
+    eCSR_ROAM_UPDATE_SCAN_RESULT,
+    eCSR_ROAM_ECSA_BCN_TX_IND,
+    eCSR_ROAM_ECSA_CHAN_CHANGE_RSP,
+    eCSR_ROAM_STA_CHANNEL_SWITCH,
 }eRoamCmdStatus;
 
 
@@ -665,8 +669,6 @@ typedef enum
     eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTED,
     // Participating in a Infra network and connected to a peer
     eCSR_ASSOC_STATE_TYPE_INFRA_CONNECTED,
-    /* Disconnecting with AP or stop connecting process */
-    eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTING,
 
 }eCsrConnectState;
 
@@ -958,6 +960,7 @@ typedef struct tagCsrRoamProfile
     tCsrMobilityDomainInfo MDID;
 #endif
     tVOS_CON_MODE csrPersona;
+    bool force_24ghz_in_ht20;
     tCsrBssid bssid_hint;
 }tCsrRoamProfile;
 
@@ -1032,6 +1035,7 @@ typedef struct tagCsrNeighborRoamConfigParams
     tANI_U16       nNeighborResultsRefreshPeriod;
     tANI_U16       nEmptyScanRefreshPeriod;
     tANI_U8        nNeighborInitialForcedRoamTo5GhEnable;
+    tANI_U8        nWeakZoneRssiThresholdForRoam;
 }tCsrNeighborRoamConfigParams;
 #endif
 
@@ -1242,6 +1246,12 @@ typedef struct tagCsrConfigParam
     uint32_t edca_vi_aifs;
     uint32_t edca_bk_aifs;
     uint32_t edca_be_aifs;
+    tANI_BOOLEAN disable_scan_during_sco;
+    uint32_t sta_auth_retries_for_code17;
+    uint32_t sta_sap_scc_on_dfs_chan;
+    tANI_U8 agg_btc_sco_oui[3];
+    tANI_U8 num_ba_buff_btc_sco;
+    tANI_U8 num_ba_buff;
 }tCsrConfigParam;
 
 //Tush
@@ -1333,6 +1343,15 @@ typedef struct tagCsrRoamInfo
 #ifdef WLAN_FEATURE_AP_HT40_24G
     tpSirHT2040CoexInfoInd pSmeHT2040CoexInfoInd;
 #endif
+    tDot11fIEHTCaps ht_caps;
+    tDot11fIEVHTCaps vht_caps;
+    tDot11fIEhs20vendor_ie hs20vendor_ie;
+    tDot11fIEVHTOperation vht_operation;
+    tDot11fIEHTInfo ht_operation;
+    bool reassoc;
+    struct sir_channel_chanege_rsp *ap_chan_change_rsp;
+    tSirSmeChanInfo chan_info;
+    tSirMacHTChannelWidth ch_width;
 }tCsrRoamInfo;
 
 typedef struct tagCsrFreqScanInfo
@@ -1362,6 +1381,10 @@ typedef struct sSirSmeAssocIndToUpperLayerCnf
     tANI_U8              HT40MHzIntoEnabledSta; //set to true if 40 MHz Intolerant enabled STA
 #endif
     uint32_t             rate_flags;
+    tSirSmeChanInfo      chan_info;
+    tSirMacHTChannelWidth ch_width;
+    tDot11fIEHTCaps HTCaps;
+    tDot11fIEVHTCaps VHTCaps;
 } tSirSmeAssocIndToUpperLayerCnf, *tpSirSmeAssocIndToUpperLayerCnf;
 
 typedef struct tagCsrSummaryStatsInfo
@@ -1523,8 +1546,16 @@ typedef struct tagCsrHandoffRequest
 {
     tCsrBssid bssid;
     tANI_U8 channel;
+    /* To check if its a REASSOC or a FASTREASSOC IOCTL */
+    tANI_U8 src;
 }tCsrHandoffRequest;
 #endif
+
+typedef enum {
+    REASSOC     = 0,
+    FASTREASSOC = 1,
+    CONNECT_CMD_USERSPACE = 2,
+} handoff_src;
 
 #if defined(FEATURE_WLAN_ESE) && defined(FEATURE_WLAN_ESE_UPLOAD)
 typedef struct tagCsrEseBeaconReqParams
@@ -1547,6 +1578,18 @@ struct tagCsrDelStaParams
     tCsrBssid peerMacAddr;
     u16 reason_code;
     u8 subtype;
+};
+
+
+/**
+ * struct csr_set_tx_max_pwr_per_band - Req params to
+ * set max tx power per band
+ * @band: band for which power to be set
+ * @power: power to set in dB
+ */
+struct csr_set_tx_max_pwr_per_band {
+    eCsrBand band;
+    tPowerdBm power;
 };
 
 ////////////////////////////////////////////Common SCAN starts
@@ -1749,5 +1792,12 @@ eHalStatus csrSetBand(tHalHandle hHal, eCsrBand eBand);
 ---------------------------------------------------------------------------*/
 eCsrBand csrGetCurrentBand (tHalHandle hHal);
 
+/**
+ * csrConvertCBIniValueToPhyCBState() - convert ini CB value to Phy CB val
+ * @cb_ini_value: ini value of cb mode
+ *
+ * Return: phy CB val
+ */
+ePhyChanBondState csrConvertCBIniValueToPhyCBState(v_U32_t cb_ini_val);
 #endif
 

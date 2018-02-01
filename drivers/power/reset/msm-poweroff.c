@@ -153,7 +153,6 @@ static bool get_dload_mode(void)
 	return dload_mode_enabled;
 }
 
-#if 0
 static void enable_emergency_dload_mode(void)
 {
 	int ret;
@@ -178,7 +177,6 @@ static void enable_emergency_dload_mode(void)
 	if (ret)
 		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
 }
-#endif
 
 static int dload_set(const char *val, struct kernel_param *kp)
 {
@@ -286,12 +284,10 @@ static void msm_restart_prepare(const char *cmd)
 	if (qpnp_pon_check_hard_reset_stored()) {
 		/* Set warm reset as true when device is in dload mode */
 		if (get_dload_mode() || in_panic ||
-			((cmd != NULL && cmd[0] != '\0') &&
-			!strcmp(cmd, "edl")))
+			(!strcmp(cmd, "edl")))
 			need_warm_reset = true;
 	} else {
-		need_warm_reset = (get_dload_mode() || in_panic ||
-				(cmd != NULL && cmd[0] != '\0'));
+		need_warm_reset = (get_dload_mode() || in_panic);
 	}
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
@@ -312,10 +308,15 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
 			__raw_writel(0x77665500, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 		} else if (!strncmp(cmd, "recovery", 8)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RECOVERY);
 			__raw_writel(0x77665502, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+
 		} else if (!strcmp(cmd, "rtc")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_RTC);
@@ -324,10 +325,14 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_DMVERITY_CORRUPTED);
 			__raw_writel(0x77665508, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 		} else if (!strcmp(cmd, "dm-verity enforcing")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_DMVERITY_ENFORCE);
 			__raw_writel(0x77665509, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);	
 		} else if (!strcmp(cmd, "keys clear")) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_KEYS_CLEAR);
@@ -336,9 +341,13 @@ static void msm_restart_prepare(const char *cmd)
 		// +++ ASUS_BSP: add asus reboot reason for ATD interface
 		else if (!strcmp(cmd, "shutdown")) {
 			__raw_writel(0x6f656d88, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 		}
 		else if (!strcmp(cmd, "EnterShippingMode")) {
 			__raw_writel(0x6f656d43, restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
 		}
 		// --- ASUS_BSP: add asus reboot reason for ATD interface
 		else if (!strncmp(cmd, "oem-", 4)) {
@@ -348,6 +357,11 @@ static void msm_restart_prepare(const char *cmd)
 			if (!ret)
 				__raw_writel(0x6f656d00 | (code & 0xff),
 					     restart_reason);
+			need_warm_reset = true;
+			qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+
+		} else if (!strncmp(cmd, "edl", 3)) {
+			enable_emergency_dload_mode();
 		} else {
 			__raw_writel(0x77665501, restart_reason);
 		}

@@ -146,10 +146,10 @@ static struct sk_buff* hdd_mon_tx_fetch_pkt(hdd_adapter_t* pAdapter);
 //Utility function to dump an sk_buff
 static void dump_sk_buff(struct sk_buff * skb)
 {
-  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: head = %p", __func__, skb->head);
-  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: data = %p", __func__, skb->data);
-  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: tail = %p", __func__, skb->tail);
-  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: end = %p", __func__, skb->end);
+  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: head = %pK", __func__, skb->head);
+  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: data = %pK", __func__, skb->data);
+  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: tail = %pK", __func__, skb->tail);
+  VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: end = %pK", __func__, skb->end);
   VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: len = %d", __func__, skb->len);
   VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: data_len = %d", __func__, skb->data_len);
   VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,"%s: mac_len = %d", __func__, skb->mac_len);
@@ -793,7 +793,7 @@ void hdd_dump_dhcp_pkt(struct sk_buff *skb, int path)
  }
 
 /**============================================================================
-  @brief hdd_hard_start_xmit() - Function registered with the Linux OS for
+  @brief __hdd_hard_start_xmit() - Function registered with the Linux OS for
   transmitting packets. There are 2 versions of this function. One that uses
   locked queue and other that uses lockless queues. Both have been retained to
   do some performance testing
@@ -804,7 +804,7 @@ void hdd_dump_dhcp_pkt(struct sk_buff *skb, int path)
   @return         : NET_XMIT_DROP if packets are dropped
                   : NET_XMIT_SUCCESS if packet is enqueued succesfully
   ===========================================================================*/
-int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+int __hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
    VOS_STATUS status;
    WLANTL_ACEnumType qid, ac;
@@ -931,6 +931,24 @@ int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
          return NETDEV_TX_OK;
       }
    }
+
+   if (pHddCtx->bad_sta[STAId]) {
+      hdd_list_node_t *anchor = NULL;
+      skb_list_node_t *pktNode = NULL;
+      struct sk_buff *fskb = NULL;
+
+      if (pAdapter->wmm_tx_queue[qid].count >=
+          pAdapter->wmm_tx_queue[qid].max_size / 2) {
+         hdd_list_remove_front(&pAdapter->wmm_tx_queue[qid],
+                               &anchor);
+         pktNode = list_entry(anchor, skb_list_node_t, anchor);
+         fskb = pktNode->skb;
+         kfree_skb(fskb);
+         ++pAdapter->stats.tx_dropped;
+         ++pAdapter->hdd_stats.hddTxRxStats.txXmitDropped;
+      }
+   }
+
    //If we have already reached the max queue size, disable the TX queue
    if ( pAdapter->wmm_tx_queue[qid].count == pAdapter->wmm_tx_queue[qid].max_size)
    {
@@ -1082,6 +1100,15 @@ int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
    dev->trans_start = jiffies;
 
    return NETDEV_TX_OK;
+}
+
+int hdd_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+{
+	int ret;
+	vos_ssr_protect(__func__);
+	ret = __hdd_hard_start_xmit(skb, dev);
+	vos_ssr_unprotect(__func__);
+	return ret;
 }
 
 /**============================================================================
@@ -1675,7 +1702,7 @@ VOS_STATUS hdd_tx_complete_cbk( v_VOID_t *vosContext,
    if (pAdapter == NULL || WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic)
    {
       VOS_TRACE(VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_INFO,
-                    "%s: Invalid adapter %p", __func__, pAdapter);
+                    "%s: Invalid adapter %pK", __func__, pAdapter);
    }
    else
    {
@@ -1999,7 +2026,7 @@ VOS_STATUS hdd_tx_fetch_packet_cbk( v_VOID_t *vosContext,
    if ((NULL == pAdapter) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic))
    {
       VOS_TRACE( VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,
-              FL("invalid adapter:%p for staId:%u"), pAdapter, *pStaId);
+              FL("invalid adapter:%pK for staId:%u"), pAdapter, *pStaId);
       VOS_ASSERT(0);
       return VOS_STATUS_E_FAILURE;
    }
@@ -2391,7 +2418,7 @@ VOS_STATUS hdd_tx_low_resource_cbk( vos_pkt_t *pVosPacket,
    if (NULL == pAdapter || WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic)
    {
       VOS_TRACE(VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,
-                 FL("Invalid adapter %p"), pAdapter);
+                 FL("Invalid adapter %pK"), pAdapter);
       return VOS_STATUS_E_FAILURE;
    }
 
@@ -2543,7 +2570,7 @@ VOS_STATUS  hdd_rx_packet_monitor_cbk(v_VOID_t *vosContext,vos_pkt_t *pVosPacket
    if ((NULL == pAdapter)  || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic) )
    {
       VOS_TRACE(VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,
-                 FL("Invalid adapter %p for MONITOR MODE"), pAdapter);
+                 FL("Invalid adapter %pK for MONITOR MODE"), pAdapter);
       vos_pkt_return_packet( pVosPacket );
       return VOS_STATUS_E_FAILURE;
    }
@@ -2665,7 +2692,7 @@ VOS_STATUS hdd_rx_packet_cbk( v_VOID_t *vosContext,
    struct sk_buff *skb = NULL;
    vos_pkt_t* pVosPacket;
    vos_pkt_t* pNextVosPacket;
-   v_U8_t proto_type;
+   v_U8_t proto_type = 0;
    v_BOOL_t arp_pkt;
 
    //Sanity check on inputs
@@ -2690,7 +2717,7 @@ VOS_STATUS hdd_rx_packet_cbk( v_VOID_t *vosContext,
    if ((NULL == pAdapter)  || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic) )
    {
       VOS_TRACE(VOS_MODULE_ID_HDD_DATA, VOS_TRACE_LEVEL_ERROR,
-                 FL("Invalid adapter %p for staId %u"), pAdapter, staId);
+                 FL("Invalid adapter %pK for staId %u"), pAdapter, staId);
       return VOS_STATUS_E_FAILURE;
    }
 
@@ -2830,7 +2857,7 @@ VOS_STATUS hdd_rx_packet_cbk( v_VOID_t *vosContext,
 
       if (arp_pkt)
       {
-         pAdapter->dad |= hdd_is_duplicate_ip_arp(skb);
+         pAdapter->dad = hdd_is_duplicate_ip_arp(skb);
          if(pAdapter->dad)
          VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                    "%s :Duplicate IP detected",__func__);

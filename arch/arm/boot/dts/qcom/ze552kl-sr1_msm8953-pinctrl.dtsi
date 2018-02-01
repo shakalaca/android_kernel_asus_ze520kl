@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -170,6 +170,36 @@
 			};
 		};
 
+		cam_sensor_ir_cut_default: cam_sensor_ir_cut_default {
+			/* RESET, STANDBY */
+			mux {
+				pins = "gpio38", "gpio39";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio38","gpio39";
+				bias-pull-up; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_ir_cut_sleep: cam_sensor_ir_cut_sleep {
+			/* RESET, STANDBY */
+			mux {
+				pins = "gpio38","gpio39";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio38","gpio39";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+
+
 		cam_sensor_rear_vana: cam_sensor_rear_vdig {
 			/* VDIG */
 			mux {
@@ -193,6 +223,34 @@
 
 			config {
 				pins = "gpio134";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_rear_vana1: cam_sensor_rear_vdig1 {
+			/* VDIG */
+			mux {
+				pins = "gpio46";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio46";
+				bias-disable; /* No PULL */
+				drive-strength = <2>; /* 2 MA */
+			};
+		};
+
+		cam_sensor_rear_vana_sleep1: cam_sensor_rear_vdig_sleep1 {
+			/* VDIG */
+			mux {
+				pins = "gpio46";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio46";
 				bias-disable; /* No PULL */
 				drive-strength = <2>; /* 2 MA */
 			};
@@ -492,12 +550,12 @@
 
 		hsuart_active: default {
 			mux {
-				pins = "gpio12", "gpio14", "gpio15";
+				pins = "gpio12", "gpio13", "gpio14", "gpio15";
 				function = "blsp_uart4";
 			};
 
 			config {
-				pins = "gpio12", "gpio14", "gpio15";
+				pins = "gpio12", "gpio13", "gpio14", "gpio15";
 				drive-strength = <16>;
 				bias-disable;
 			};
@@ -505,12 +563,38 @@
 
 		hsuart_sleep: sleep {
 			mux {
-				pins = "gpio12", "gpio14", "gpio15";
+				pins = "gpio12", "gpio13", "gpio14", "gpio15";
 				function = "gpio";
 			};
 
 			config {
-				pins = "gpio12", "gpio14", "gpio15";
+				pins = "gpio12", "gpio13", "gpio14", "gpio15";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+
+		blsp2_uart0_active: blsp2_uart0_active {
+			mux {
+				pins = "gpio16", "gpio17", "gpio18", "gpio19";
+				function = "blsp_uart5";
+			};
+
+			config {
+				pins = "gpio16", "gpio17", "gpio18", "gpio19";
+				drive-strength = <16>;
+				bias-disable;
+			};
+		};
+
+		blsp2_uart0_sleep: blsp2_uart0_sleep {
+			mux {
+				pins = "gpio16", "gpio17", "gpio18", "gpio19";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio16", "gpio17", "gpio18", "gpio19";
 				drive-strength = <2>;
 				bias-disable;
 			};
@@ -654,8 +738,6 @@
 			};
 		};
 
-//+++.....................................................I2C bus part....................................................+++//
-
 		i2c_2 {
 			i2c_2_active: i2c_2_active {
 				/* active state */
@@ -775,7 +857,7 @@
 				};
 			};
 		};
-//---.....................................................I2C bus part....................................................---//
+
 
 		pmx_rd_nfc_int {
 			/*qcom,pins = <&gp 17>;*/
@@ -1155,7 +1237,7 @@
 				};
 			};
 		};
-
+/*Austin+++*/
 		pri-tlmm-lines {
 			pri_tlmm_lines_act: pri_tlmm_lines_act {
 				mux {
@@ -1182,7 +1264,7 @@
 				};
 			};
 		};
-
+/*Austin---*/
 		pri-tlmm-ws-lines {
 			pri_tlmm_ws_act: pri_tlmm_ws_act {
 				mux {
@@ -1403,7 +1485,6 @@
 			};
 		};
 		/* add pingrp for fingerprint */
-
 
 		pmx_qdsd_clk {
 			qdsd_clk_sdcard: clk_sdcard {
@@ -1657,6 +1738,20 @@
 				pins = "gpio139";
 				drive-strength = <2>;
 				bias-disable;
+			};
+		};
+
+		ssusb_mode_sel: ssusb_mode_sel {
+			mux {
+				pins = "gpio12";
+				function = "gpio";
+			};
+
+			config {
+				pins = "gpio12";
+				drive-strength = <2>;
+				bias-disable;
+				input-enable;
 			};
 		};
 	};

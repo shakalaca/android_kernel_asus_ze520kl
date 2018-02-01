@@ -375,7 +375,7 @@ int IoctlOpeningLaser(void){
 	//[It occurs at release immedediately following open]
 	if(client<=0){
 		ErrCode1 = RANGE_ERR_NOT_ADAPT;
-		Range1 = OUT_OF_RANGE;	
+		Range1 = OUT_OF_RANGE;				
 		LOG_Handler(LOG_CDBG,"Closing Laser is commanded before opening Laser\n");
 		return -1;
 	}
@@ -939,10 +939,9 @@ static int Olivia_misc_release(struct inode *inode, struct file *file)
 	LOG_Handler(LOG_CDBG,"%s: client leave via ioctrl(%d)\n", __func__, client);
 
 	if(client < 0){
-		client = 0;
+		client =0;
 		LOG_Handler(LOG_CDBG,"%s: dummy leave, reset client to %d\n", __func__, client);
 	}
-	
 	mutex_ctrl(laura_t, MUTEX_UNLOCK);	
 	return 0;
 }

@@ -43,11 +43,11 @@ struct voice_svc_prvt {
 	wait_queue_head_t response_wait;
 	spinlock_t response_lock;
 	/*
-        * This mutex ensures responses are processed in sequential order and
-        * that no two threads access and free the same response at the same
-        * time.
-        */
-        struct mutex response_mutex_lock;
+	 * This mutex ensures responses are processed in sequential order and
+	 * that no two threads access and free the same response at the same
+	 * time.
+	 */
+	struct mutex response_mutex_lock;
 };
 
 struct apr_data {
@@ -468,12 +468,12 @@ static ssize_t voice_svc_write(struct file *file, const char __user *buf,
 				ret = -EINVAL;
 				goto done;
 			}
-	} else {
+		} else {
 			pr_err("%s: invalid data payload size for request command\n",
 				__func__);
-		ret = -EINVAL;
-		goto done;
-	}
+			ret = -EINVAL;
+			goto done;
+		}
 		break;
 	default:
 		pr_debug("%s: Invalid command: %u\n", __func__, cmd);
@@ -503,8 +503,8 @@ static ssize_t voice_svc_read(struct file *file, char __user *arg,
 		ret = -EINVAL;
 		goto done;
 	}
-	
-        mutex_lock(&prtd->response_mutex_lock);
+
+	mutex_lock(&prtd->response_mutex_lock);
 	spin_lock_irqsave(&prtd->response_lock, spin_flags);
 
 	if (list_empty(&prtd->response_queue)) {
@@ -518,7 +518,6 @@ static ssize_t voice_svc_read(struct file *file, char __user *arg,
 			pr_debug("%s: Read timeout\n", __func__);
 
 			ret = -ETIMEDOUT;
-			//goto done;
 			goto unlock;
 		} else if (ret > 0 && !list_empty(&prtd->response_queue)) {
 			pr_debug("%s: Interrupt recieved for response\n",
@@ -527,7 +526,6 @@ static ssize_t voice_svc_read(struct file *file, char __user *arg,
 			pr_debug("%s: Interrupted by SIGNAL %d\n",
 				 __func__, ret);
 
-			//goto done;
 			goto unlock;
 		}
 
@@ -547,7 +545,7 @@ static ssize_t voice_svc_read(struct file *file, char __user *arg,
 		       __func__, count, size);
 
 		ret = -ENOMEM;
-		goto done;
+		goto unlock;
 	}
 
 	if (!access_ok(VERIFY_WRITE, arg, size)) {
@@ -578,9 +576,9 @@ static ssize_t voice_svc_read(struct file *file, char __user *arg,
 				spin_flags);
 
 	ret = count;
-	
+
 unlock:
-        mutex_unlock(&prtd->response_mutex_lock);
+	mutex_unlock(&prtd->response_mutex_lock);
 done:
 	return ret;
 }
@@ -686,8 +684,8 @@ static int voice_svc_release(struct inode *inode, struct file *file)
 		if (ret)
 			pr_err("%s: Failed to dereg MVM %d\n", __func__, ret);
 	}
-	
-        mutex_lock(&prtd->response_mutex_lock);
+
+	mutex_lock(&prtd->response_mutex_lock);
 	spin_lock_irqsave(&prtd->response_lock, spin_flags);
 
 	while (!list_empty(&prtd->response_queue)) {
@@ -701,8 +699,10 @@ static int voice_svc_release(struct inode *inode, struct file *file)
 	}
 
 	spin_unlock_irqrestore(&prtd->response_lock, spin_flags);
-        mutex_unlock(&prtd->response_mutex_lock);
-        mutex_destroy(&prtd->response_mutex_lock);
+	mutex_unlock(&prtd->response_mutex_lock);
+
+	mutex_destroy(&prtd->response_mutex_lock);
+
 	kfree(file->private_data);
 	file->private_data = NULL;
 

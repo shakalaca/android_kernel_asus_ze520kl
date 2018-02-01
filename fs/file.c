@@ -455,7 +455,6 @@ struct files_struct init_files = {
 /*
  * allocate a file descriptor, mark it busy.
  */
-extern struct work_struct __dumpSurfaceflinger_work;
 static void fdtable_usage_dump(struct fdtable *fdt);
 int __alloc_fd(struct files_struct *files,
 	       unsigned start, unsigned end, unsigned flags)
@@ -502,8 +501,6 @@ repeat:
 	else
 		__clear_close_on_exec(fd, fdt);
 	memset(&fdt->user[fd], 0, sizeof(*fdt->user));
-	if(fdt->max_fds > 900 )
-			schedule_work(&__dumpSurfaceflinger_work);
 	error = fd;
 #if 1
 	/* Sanity check */

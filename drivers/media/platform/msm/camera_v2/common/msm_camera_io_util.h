@@ -90,5 +90,4 @@ void msm_camera_put_dt_reg_settings(uint32_t **reg_s,
 int msm_camera_hw_write_dt_reg_settings(void __iomem *base,
 	uint32_t *reg_s,
 	unsigned int size);
-
 #endif

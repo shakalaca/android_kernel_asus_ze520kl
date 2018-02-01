@@ -107,7 +107,7 @@
 &pm8953_diangu_analog {
 	status = "disabled";
 };
-
+/*
 &ext_codec {
 	status = "ok";
 	qcom,model = "msm8953-sku3-tasha-snd-card";
@@ -134,7 +134,7 @@
 	qcom,wsa-devs = <&wsa881x_211>, <&wsa881x_213>;
 	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrLeft";
 };
-
+*/
 &slim_msm {
 	status = "ok";
 };

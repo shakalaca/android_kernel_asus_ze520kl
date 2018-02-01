@@ -43,8 +43,9 @@ struct msm_rtb_platform_data {
  * 4) 4 bytes index
  * 4) 8 bytes extra data from the caller
  * 5) 8 bytes of timestamp
+ * 6) 8 bytes of cyclecount
  *
- * Total = 32 bytes.
+ * Total = 40 bytes.
  */
 struct msm_rtb_layout {
 	unsigned char sentinel[3];
@@ -53,6 +54,7 @@ struct msm_rtb_layout {
 	uint64_t caller;
 	uint64_t data;
 	uint64_t timestamp;
+	uint64_t cycle_count;
 } __attribute__ ((__packed__));
 
 

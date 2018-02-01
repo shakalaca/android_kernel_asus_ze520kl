@@ -824,9 +824,9 @@ static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int a,
 					 sizeof(buf_node->frame.pktlen));
 			}
 			if (ret) {
-			    pr_err("%s: copy from user failed %d\n",
-				    __func__, ret);
-			    return -EFAULT;
+				pr_err("%s: copy from user failed %d\n",
+				       __func__, ret);
+				return -EFAULT;
 			}
 			spin_lock_irqsave(&prtd->dsp_lock, dsp_flags);
 			list_add_tail(&buf_node->list, &prtd->in_queue);

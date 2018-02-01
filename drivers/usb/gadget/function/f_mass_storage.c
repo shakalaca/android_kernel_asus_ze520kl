@@ -228,7 +228,7 @@
 #define FSG_DRIVER_DESC		"Mass Storage Function"
 #define FSG_DRIVER_VERSION	"2009/09/11"
 
-static const char fsg_string_interface[] = "Android Mass Storage";
+static const char fsg_string_interface[] = "Mass Storage";
 
 #include "storage_common.h"
 #include "f_mass_storage.h"
@@ -3252,10 +3252,10 @@ void fsg_common_set_inquiry_string(struct fsg_common *common, const char *vn,
 	/* Prepare inquiryString */
 	i = get_default_bcdDevice();
 	snprintf(common->inquiry_string, sizeof(common->inquiry_string),
-		 "%-8s%-16s%04x", vn ?: "ASUS",
+		 "%-8s%-16s%04x", vn ?: "Linux",
 		 /* Assume product name dependent on the first LUN */
 		 pn ?: ((*common->luns)->cdrom
-		     ? "Device CD-ROM"
+		     ? "File-CD Gadget"
 		     : "File-Stor Gadget"),
 		 i);
 }

@@ -367,6 +367,7 @@ typedef struct tagCsrRoamStartBssParams
     tCsrBssid           bssid;    //this is the BSSID for the party we want to join (only use for IBSS or WDS)
     tSirNwType          sirNwType;
     ePhyChanBondState   cbMode;
+    enum eSirMacHTChannelWidth orig_ch_width;
     tSirMacRateSet      operationalRateSet;
     tSirMacRateSet      extendedRateSet;
     tANI_U8             operationChn;
@@ -400,7 +401,6 @@ typedef struct tagScanCmd
     csrScanCompleteCallback callback;
     void                    *pContext;
     eCsrScanReason          reason;
-    eCsrRoamState           lastRoamState[CSR_ROAM_SESSION_MAX];
     tCsrRoamProfile         *pToRoamProfile;
     tANI_U32                roamId;    //this is the ID related to the pToRoamProfile
     union
@@ -521,6 +521,7 @@ typedef struct tagCsrNeighborRoamConfig
     tANI_U16       nNeighborResultsRefreshPeriod;
     tANI_U16       nEmptyScanRefreshPeriod;
     tANI_U8        nNeighborInitialForcedRoamTo5GhEnable;
+    tANI_U8        nWeakZoneRssiThresholdForRoam;
 }tCsrNeighborRoamConfig;
 #endif
 
@@ -715,6 +716,10 @@ typedef struct tagCsrConfig
     uint32_t edca_vi_aifs;
     uint32_t edca_bk_aifs;
     uint32_t edca_be_aifs;
+    tANI_U8 agg_btc_sco_oui[3];
+    tANI_BOOLEAN agg_btc_sco_enabled;
+    tANI_U8 num_ba_buff_btc_sco;
+    tANI_U8 num_ba_buff;
 }tCsrConfig;
 
 typedef struct tagCsrChannelPowerInfo
@@ -747,6 +752,13 @@ typedef struct tagCsrVotes11d
     tANI_U8 countryCode[WNI_CFG_COUNTRY_CODE_LEN];
 }tCsrVotes11d;
 
+struct csr_disable_scan_during_sco_timer_info
+{
+    struct net_device *dev;
+    tANI_U32 scan_id;
+    csrScanCompleteCallback callback;
+};
+
 typedef struct tagCsrScanStruct
 {
     tScanProfile scanProfile;
@@ -756,6 +768,10 @@ typedef struct tagCsrScanStruct
     tANI_BOOLEAN fScanEnable;
     tANI_BOOLEAN fFullScanIssued;
     vos_timer_t hTimerGetResult;
+    vos_timer_t disable_scan_during_sco_timer;
+    struct csr_disable_scan_during_sco_timer_info
+                                 disable_scan_during_sco_timer_info;
+    tANI_BOOLEAN disable_scan_during_sco;
 #ifdef WLAN_AP_STA_CONCURRENCY
     vos_timer_t hTimerStaApConcTimer;
 #endif
@@ -841,6 +857,8 @@ typedef struct tagCsrScanStruct
     csrScanCompleteCallback callback11dScanDone;
     eCsrBand  scanBandPreference;  //This defines the band perference for scan
     bool fcc_constraint;
+    /* flag to defer updated chanel list */
+    bool defer_update_channel_list;
 }tCsrScanStruct;
 
 
@@ -998,6 +1016,7 @@ typedef struct tagCsrRoamSession
     tANI_BOOLEAN fIgnorePMKIDCache;
     tANI_BOOLEAN abortConnection;
     bool dhcp_done;
+    v_TIME_t connect_req_start_time;
 } tCsrRoamSession;
 
 typedef struct tagCsrRoamStruct
@@ -1012,6 +1031,7 @@ typedef struct tagCsrRoamStruct
     tCsrChannel base40MHzChannels;   //center channels for 40MHz channels
     eCsrRoamState curState[CSR_ROAM_SESSION_MAX];
     eCsrRoamSubState curSubState[CSR_ROAM_SESSION_MAX];
+    eCsrRoamState prev_state[CSR_ROAM_SESSION_MAX];
     //This may or may not have the up-to-date valid channel list
     //It is used to get WNI_CFG_VALID_CHANNEL_LIST and not allocate memory all the time
     tSirMacChanNum validChannelList[WNI_CFG_VALID_CHANNEL_LIST_LEN];
@@ -1054,6 +1074,8 @@ typedef struct tagCsrRoamStruct
     tANI_BOOLEAN   isWESModeEnabled;
 #endif
     tANI_U32 deauthRspStatus;
+    tANI_BOOLEAN pending_roam_disable;
+    vos_spin_lock_t roam_state_lock;
 }tCsrRoamStruct;
 
 

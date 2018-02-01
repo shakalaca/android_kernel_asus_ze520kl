@@ -239,7 +239,7 @@ static int cm36686_IRsensor_hw_get_interrupt(void)
 
 	/* Interrupt Error */
 	if(check_flag == false){		
-		err("Can NOT recognize the INT_FLAG (0x%02X%02X)\n", buf[1], buf[0]);
+//		err("Can NOT recognize the INT_FLAG (0x%02X%02X)\n", buf[1], buf[0]);
 		return -1;
 	}
 

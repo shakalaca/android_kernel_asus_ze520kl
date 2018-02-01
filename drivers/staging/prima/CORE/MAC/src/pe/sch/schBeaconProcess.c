@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -380,9 +380,14 @@ static void __schBeaconProcessForSession( tpAniSirGlobal      pMac,
            goto fail;
         }
 
-        if( RF_CHAN_14 >= psessionEntry->currentOperChannel )
+        if(RF_CHAN_14 >= psessionEntry->currentOperChannel)
         {
-           channelBondingMode = pMac->roam.configParam.channelBondingMode24GHz;
+            if (psessionEntry->force_24ghz_in_ht20)
+                channelBondingMode =
+                     WNI_CFG_CHANNEL_BONDING_MODE_DISABLE;
+            else
+                channelBondingMode =
+                     pMac->roam.configParam.channelBondingMode24GHz;
         }
         else
         {
@@ -480,7 +485,8 @@ static void __schBeaconProcessForSession( tpAniSirGlobal      pMac,
     {
         /* Channel Switch information element updated */
         if(pBeacon->channelSwitchPresent ||
-            pBeacon->propIEinfo.propChannelSwitchPresent)
+            pBeacon->propIEinfo.propChannelSwitchPresent ||
+            pBeacon->ecsa_present)
         {
             limUpdateChannelSwitch(pMac, pBeacon, psessionEntry);
         }
@@ -656,7 +662,8 @@ static void __schBeaconProcessForSession( tpAniSirGlobal      pMac,
         {
             localRRMConstraint = 0;
         }
-        maxTxPower = VOS_MIN(regMax,(regMax - localRRMConstraint));
+        maxTxPower =  limGetMaxTxPower(regMax, regMax - localRRMConstraint,
+                                     pMac->roam.configParam.nTxPowerCap);
     }
 #elif defined FEATURE_WLAN_ESE
     maxTxPower = regMax;

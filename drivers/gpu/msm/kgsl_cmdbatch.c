@@ -350,10 +350,7 @@ static int kgsl_cmdbatch_add_sync_fence(struct kgsl_device *device,
 	unsigned long flags;
 	int ret = 0;
 
-#if defined(CONFIG_SYNC)
 	fence = sync_fence_fdget(sync->fd);
-#endif
-
 	if (fence == NULL)
 		return -EINVAL;
 
@@ -399,9 +396,7 @@ static int kgsl_cmdbatch_add_sync_fence(struct kgsl_device *device,
 		spin_unlock_irqrestore(&event->handle_lock, flags);
 	}
 
-#if defined(CONFIG_SYNC)
 	sync_fence_put(fence);
-#endif
 	return ret;
 }
 

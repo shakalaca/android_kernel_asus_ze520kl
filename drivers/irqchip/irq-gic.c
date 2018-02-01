@@ -43,7 +43,6 @@
 #include <linux/syscore_ops.h>
 #include <linux/msm_rtb.h>
 #include <linux/wakeup_reason.h>
-
 #include <asm/cputype.h>
 #include <asm/irq.h>
 #include <asm/exception.h>
@@ -52,6 +51,16 @@
 #include "irq-gic-common.h"
 #include "irqchip.h"
 
+
+/*ASUS_BSP Freddy_Ke:
+*
+* Use "gic_irq_cnt" to count resume irq number.
+* User "gic_resume_irq[8]" to save resume irq's HW number.
+*
+* This two variables are externed in console.h and printk.c will include console.h
+*
+* printk.c will use this 2 value to print IRQ trigger during "resume_console()"
+*/
 int gic_irq_cnt,gic_resume_irq[8];//[Power]Add these values to save IRQ's counts and number
 union gic_base {
 	void __iomem *common_base;
@@ -286,22 +295,8 @@ int wcnss_irq_flag_function_wdi(void){
 }
 EXPORT_SYMBOL(wcnss_irq_flag_function_wdi);
 
-
 //ASUS_BSP--- "for wlan wakeup trace"
 
-/*ASUS-BBSP Log Modem Wake Up Info+++*/
-#define MODEM_IRQ_VALUE 57
-static int modem_resume_irq_flag = 0;
-int modem_resume_irq_flag_function(void)
-{
-    if( modem_resume_irq_flag == 1 ) {
-        modem_resume_irq_flag = 0;
-        return 1;
-    }
-    return 0;
-    }
-EXPORT_SYMBOL(modem_resume_irq_flag_function);
-/*ASUS-BBSP Log Modem Wake Up Info---*/
 
 //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
 static int rmnet_irq_flag_rx = 0;
@@ -329,6 +324,13 @@ int rmnet_irq_flag_function_rx_260(void)
 EXPORT_SYMBOL(rmnet_irq_flag_function_rx_260);
 //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57 260
 
+
+/*ASUS_BSP Freddy:
+* msm_show_resume_irq_mask manual debug node is "/sys/module/msm_show_resume_irq/parameters/debug_mask"
+* irq-gic-v3.c will include "irq-gic-common.h", which extern msm_show_resume_irq_mask.
+*
+* If "debug_mask" or "msm_show_resume_irq_mask" is True, gic_show_resume_irq will dump more info.
+*/
 static void gic_show_resume_irq(struct gic_chip_data *gic)
 {
 	unsigned int i;
@@ -366,9 +368,9 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		else if (desc->action && desc->action->name)
 			name = desc->action->name;
 
-		printk("%s: %d triggered %s\n", __func__,
+		printk("[PM]%s: %d triggered %s\n", __func__,
 					i + gic->irq_offset, name);
-		log_wakeup_reason(i + gic->irq_offset);
+//		log_base_wakeup_reason(i + gic->irq_offset);
 		//[+++][Power]save IRQ's counts and number
 		if (gic_irq_cnt < 8)
 			gic_resume_irq[gic_irq_cnt]=i + gic->irq_offset;
@@ -384,13 +386,6 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		    wcnss_irq_flag_wdi = 1;
 		}
 		//ASUS_BSP--- "for wlan wakeup trace"
-
-                /*ASUS-BBSP Log Modem Wake Up Info+++*/
-                if( (i + gic->irq_offset) == MODEM_IRQ_VALUE ) {
-                    modem_resume_irq_flag = 1;
-                }
-                /*ASUS-BBSP Log Modem Wake Up Info---*/
-
                 //ASUS_BSP +++ Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 57
                 if( (i + gic->irq_offset) == 57 ){
                     rmnet_irq_flag_rx = 1;
@@ -404,8 +399,6 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
                     //printk("%s: [data] Johnny test\n", __func__);
                 }
                 //ASUS_BSP --- Johnny [Qcom][PS][][ADD]Print first IP address log when IRQ 260
-
-
 	}
 	//[+++][Power]Save maxmum count to 8
 	if (gic_irq_cnt >= 8)
@@ -573,6 +566,14 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 			writel_relaxed_no_log(irqstat, cpu_base + GIC_CPU_EOI);
 			uncached_logk(LOGK_IRQ, (void *)(uintptr_t)irqnr);
 #ifdef CONFIG_SMP
+			/*
+			 * Ensure any shared data written by the CPU sending
+			 * the IPI is read after we've read the ACK register
+			 * on the GIC.
+			 *
+			 * Pairs with the write barrier in gic_raise_softirq
+			 */
+			smp_rmb();
 			handle_IPI(irqnr, regs);
 #endif
 			continue;
@@ -581,12 +582,13 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 	} while (1);
 }
 
-static void gic_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
+static bool gic_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
 {
 	struct gic_chip_data *chip_data = irq_get_handler_data(irq);
 	struct irq_chip *chip = irq_get_chip(irq);
 	unsigned int cascade_irq, gic_irq;
 	unsigned long status;
+	int handled = false;
 
 	chained_irq_enter(chip, desc);
 
@@ -602,10 +604,12 @@ static void gic_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
 	if (unlikely(gic_irq < 32 || gic_irq > 1020))
 		handle_bad_irq(cascade_irq, desc);
 	else
-		generic_handle_irq(cascade_irq);
+		handled = generic_handle_irq(cascade_irq);
+
 
  out:
 	chained_irq_exit(chip, desc);
+	return handled == true;
 }
 
 static struct irq_chip gic_chip = {

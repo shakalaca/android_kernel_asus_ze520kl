@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -61,6 +61,7 @@
 #define TRUE   1
 #define FALSE  0
 
+#define MAX_LANE_COUNT 4
 #define CSID_TIMEOUT msecs_to_jiffies(100)
 
 #undef CDBG
@@ -194,9 +195,20 @@ static void msm_csid_set_debug_reg(struct csid_device *csid_dev,
 	struct msm_camera_csid_params *csid_params) {}
 #endif
 
-static void msm_csid_set_sof_freeze_debug_reg(struct csid_device *csid_dev)
+static void msm_csid_set_sof_freeze_debug_reg(
+	struct csid_device *csid_dev, uint8_t irq_enable)
 {
 	uint32_t val = 0;
+
+	if (!irq_enable) {
+		val = msm_camera_io_r(csid_dev->base +
+			csid_dev->ctrl_reg->csid_reg.csid_irq_status_addr);
+		msm_camera_io_w(val, csid_dev->base +
+			csid_dev->ctrl_reg->csid_reg.csid_irq_clear_cmd_addr);
+		msm_camera_io_w(0, csid_dev->base +
+			csid_dev->ctrl_reg->csid_reg.csid_irq_mask_addr);
+		return;
+	}
 
 	if (csid_dev->csid_3p_enabled == 1) {
 		val = ((1 << csid_dev->current_csid_params.lane_cnt) - 1) <<
@@ -218,16 +230,34 @@ static void msm_csid_set_sof_freeze_debug_reg(struct csid_device *csid_dev)
 static int msm_csid_reset(struct csid_device *csid_dev)
 {
 	int32_t rc = 0;
+	uint32_t irq = 0, irq_bitshift;
+
+	irq_bitshift = csid_dev->ctrl_reg->csid_reg.csid_rst_done_irq_bitshift;
 	msm_camera_io_w(csid_dev->ctrl_reg->csid_reg.csid_rst_stb_all,
 		csid_dev->base +
 		csid_dev->ctrl_reg->csid_reg.csid_rst_cmd_addr);
 	rc = wait_for_completion_timeout(&csid_dev->reset_complete,
 		CSID_TIMEOUT);
-	if (rc <= 0) {
+	if (rc < 0) {
 		pr_err("wait_for_completion in msm_csid_reset fail rc = %d\n",
 			rc);
+	} else if (rc == 0) {
+		irq = msm_camera_io_r(csid_dev->base +
+			csid_dev->ctrl_reg->csid_reg.csid_irq_status_addr);
+		pr_err_ratelimited("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
+			__func__, csid_dev->pdev->id, irq);
+		if (irq & (0x1 << irq_bitshift)) {
+			rc = 1;
+			CDBG("%s succeeded", __func__);
+		} else {
+			rc = 0;
+			pr_err("%s reset csid_irq_status failed = 0x%x\n",
+				__func__, irq);
+		}
 		if (rc == 0)
 			rc = -ETIMEDOUT;
+	} else {
+		CDBG("%s succeeded", __func__);
 	}
 	return rc;
 }
@@ -265,7 +295,7 @@ static int msm_csid_config(struct csid_device *csid_dev,
 	void __iomem *csidbase;
 	csidbase = csid_dev->base;
 	if (!csidbase || !csid_params) {
-		pr_err("%s:%d csidbase %p, csid params %p\n", __func__,
+		pr_err("%s:%d csidbase %pK, csid params %pK\n", __func__,
 			__LINE__, csidbase, csid_params);
 		return -EINVAL;
 	}
@@ -276,6 +306,12 @@ static int msm_csid_config(struct csid_device *csid_dev,
 		csid_params->lane_assign);
 	CDBG("%s csid_params phy_sel = %d\n", __func__,
 		csid_params->phy_sel);
+	if ((csid_params->lane_cnt == 0) ||
+		(csid_params->lane_cnt > MAX_LANE_COUNT)) {
+		pr_err("%s:%d invalid lane count = %d\n",
+			__func__, __LINE__, csid_params->lane_cnt);
+		return -EINVAL;
+	}
 
 	csid_dev->csid_lane_cnt = csid_params->lane_cnt;
 	rc = msm_csid_reset(csid_dev);
@@ -287,7 +323,7 @@ static int msm_csid_config(struct csid_device *csid_dev,
 	if (!msm_csid_find_max_clk_rate(csid_dev))
 		pr_err("msm_csid_find_max_clk_rate failed\n");
 
-	clk_rate = (csid_params->csi_clk > 0) ?
+	clk_rate = ((int)csid_params->csi_clk > 0) ?
 				(csid_params->csi_clk) : csid_dev->csid_max_clk;
 
 	clk_rate = msm_camera_clk_set_rate(&csid_dev->pdev->dev,
@@ -446,6 +482,16 @@ static irqreturn_t msm_csid_irq(int irq_num, void *data)
 		pr_err("%s:%d csid_dev NULL\n", __func__, __LINE__);
 		return IRQ_HANDLED;
 	}
+
+	if (csid_dev->csid_sof_debug == SOF_DEBUG_ENABLE) {
+		if (csid_dev->csid_sof_debug_count < CSID_SOF_DEBUG_COUNT)
+			csid_dev->csid_sof_debug_count++;
+		else {
+			msm_csid_set_sof_freeze_debug_reg(csid_dev, false);
+			return IRQ_HANDLED;
+		}
+	}
+
 	irq = msm_camera_io_r(csid_dev->base +
 		csid_dev->ctrl_reg->csid_reg.csid_irq_status_addr);
 	pr_err_ratelimited("%s CSID%d_IRQ_STATUS_ADDR = 0x%x\n",
@@ -480,6 +526,7 @@ static int msm_csid_init(struct csid_device *csid_dev, uint32_t *csid_version)
 		return rc;
 	}
 
+	csid_dev->csid_sof_debug_count = 0;
 	csid_dev->reg_ptr = NULL;
 
 	if (csid_dev->csid_state == CSID_POWER_UP) {
@@ -651,7 +698,7 @@ static int32_t msm_csid_cmd(struct csid_device *csid_dev, void __user *arg)
 	struct csid_cfg_data *cdata = (struct csid_cfg_data *)arg;
 
 	if (!csid_dev || !cdata) {
-		pr_err("%s:%d csid_dev %p, cdata %p\n", __func__, __LINE__,
+		pr_err("%s:%d csid_dev %pK, cdata %pK\n", __func__, __LINE__,
 			csid_dev, cdata);
 		return -EINVAL;
 	}
@@ -760,13 +807,14 @@ static long msm_csid_subdev_ioctl(struct v4l2_subdev *sd,
 			break;
 		if (csid_dev->csid_sof_debug == SOF_DEBUG_DISABLE) {
 			csid_dev->csid_sof_debug = SOF_DEBUG_ENABLE;
-			msm_csid_set_sof_freeze_debug_reg(csid_dev);
+			msm_csid_set_sof_freeze_debug_reg(csid_dev, true);
 		}
 		break;
 	case MSM_SD_UNNOTIFY_FREEZE:
 		if (csid_dev->csid_state != CSID_POWER_UP)
 			break;
 		csid_dev->csid_sof_debug = SOF_DEBUG_DISABLE;
+		msm_csid_set_sof_freeze_debug_reg(csid_dev, false);
 		break;
 	case VIDIOC_MSM_CSID_RELEASE:
 	case MSM_SD_SHUTDOWN:
@@ -792,7 +840,7 @@ static int32_t msm_csid_cmd32(struct csid_device *csid_dev, void __user *arg)
 	cdata = &local_arg;
 
 	if (!csid_dev || !cdata) {
-		pr_err("%s:%d csid_dev %p, cdata %p\n", __func__, __LINE__,
+		pr_err("%s:%d csid_dev %pK, cdata %pK\n", __func__, __LINE__,
 			csid_dev, cdata);
 		return -EINVAL;
 	}
@@ -916,13 +964,14 @@ static long msm_csid_subdev_ioctl32(struct v4l2_subdev *sd,
 			break;
 		if (csid_dev->csid_sof_debug == SOF_DEBUG_DISABLE) {
 			csid_dev->csid_sof_debug = SOF_DEBUG_ENABLE;
-			msm_csid_set_sof_freeze_debug_reg(csid_dev);
+			msm_csid_set_sof_freeze_debug_reg(csid_dev, true);
 		}
 		break;
 	case MSM_SD_UNNOTIFY_FREEZE:
 		if (csid_dev->csid_state != CSID_POWER_UP)
 			break;
 		csid_dev->csid_sof_debug = SOF_DEBUG_DISABLE;
+		msm_csid_set_sof_freeze_debug_reg(csid_dev, false);
 		break;
 	case VIDIOC_MSM_CSID_RELEASE:
 	case MSM_SD_SHUTDOWN:

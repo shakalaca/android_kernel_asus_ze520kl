@@ -31,10 +31,6 @@
 #endif
 #include <linux/workqueue.h>
 
-/* +++ ASUS_BSP Show Power on device earlier then user expiration */
-//#define ALARM_DELTA 120
-/* --- ASUS_BSP Show Power on device earlier then user expiration */
-
 /**
  * struct alarm_base - Alarm timer bases
  * @lock:		Lock for syncrhonized access to the base
@@ -64,38 +60,6 @@ static struct rtc_timer		rtctimer;
 static struct rtc_device	*rtcdev;
 static DEFINE_SPINLOCK(rtcdev_lock);
 static struct mutex power_on_alarm_lock;
-static struct alarm init_alarm;
-
-/**
- * power_on_alarm_init - Init power on alarm value
- *
- * Read rtc alarm value after device booting up and add this alarm
- * into alarm queue.
- */
-void power_on_alarm_init(void)
-{
-	struct rtc_wkalrm rtc_alarm;
-	struct rtc_time rt;
-	unsigned long alarm_time;
-	struct rtc_device *rtc;
-	ktime_t alarm_ktime;
-
-	rtc = alarmtimer_get_rtcdev();
-
-	if (!rtc)
-		return;
-
-	rtc_read_alarm(rtc, &rtc_alarm);
-	rt = rtc_alarm.time;
-
-	rtc_tm_to_time(&rt, &alarm_time);
-
-	if (alarm_time) {
-		alarm_ktime = ktime_set(alarm_time, 0);
-		alarm_init(&init_alarm, ALARM_POWEROFF_REALTIME, NULL);
-		alarm_start(&init_alarm, alarm_ktime);
-	}
-}
 
 /**
  * set_power_on_alarm - set power on alarm value into rtc register
@@ -124,6 +88,10 @@ void set_power_on_alarm(void)
 	next = timerqueue_getnext(&base->timerqueue);
 	spin_unlock_irqrestore(&base->lock, flags);
 
+	rtc = alarmtimer_get_rtcdev();
+	if (!rtc)
+		goto exit;
+
 	if (next) {
 		alarm_ts = ktime_to_timespec(next->expires);
 		alarm_secs = alarm_ts.tv_sec;
@@ -142,26 +110,14 @@ void set_power_on_alarm(void)
 	if (alarm_secs <= wall_time.tv_sec + 1)
 		goto disable_alarm;
 
-	rtc = alarmtimer_get_rtcdev();
-	if (!rtc)
-		goto exit;
-
 	rtc_read_time(rtc, &rtc_time);
 	rtc_tm_to_time(&rtc_time, &rtc_secs);
 	alarm_delta = wall_time.tv_sec - rtc_secs;
 	alarm_time = alarm_secs - alarm_delta;
-	
-	/* +++ ASUS_BSP Show Power on device earlier then user expiration */
-	/*if((alarm_time - ALARM_DELTA) > rtc_secs){
-		alarm_time -= ALARM_DELTA;
-	}else{
-		goto disable_alarm;
-	}*/
-	/* --- ASUS_BSP Show Power on device earlier then user expiration */
 
 	rtc_time_to_tm(alarm_time, &alarm.time);
 	alarm.enabled = 1;
-	rc = rtc_set_alarm(rtcdev, &alarm);
+	rc = rtc_set_alarm(rtc, &alarm);
 	if (rc)
 		goto disable_alarm;
 
@@ -169,7 +125,7 @@ void set_power_on_alarm(void)
 	return;
 
 disable_alarm:
-	rtc_alarm_irq_enable(rtcdev, 0);
+	rtc_timer_cancel(rtc, &rtc->aie_timer);
 exit:
 	mutex_unlock(&power_on_alarm_lock);
 }
@@ -338,8 +294,10 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 	alarmtimer_dequeue(base, alarm);
 	spin_unlock_irqrestore(&base->lock, flags);
 
-	if (alarm->function)
+	if (alarm->function) {
+		printk("[PM][ALARM] %s: %pf\n", __func__, alarm->function);
 		restart = alarm->function(alarm, base->gettime());
+	}
 
 	spin_lock_irqsave(&base->lock, flags);
 	if (restart != ALARMTIMER_NORESTART) {
@@ -508,7 +466,6 @@ static int alarmtimer_resume(struct device *dev)
 		return 0;
 	rtc_timer_cancel(rtc, &rtctimer);
 
-	queue_delayed_work(power_off_alarm_workqueue, &work, 0);
 	return 0;
 }
 
@@ -558,6 +515,7 @@ void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
 }
 EXPORT_SYMBOL_GPL(alarm_init);
 
+extern bool rtc_wake_control;
 /**
  * alarm_start - Sets an absolute alarm to fire
  * @alarm: ptr to alarm to set
@@ -568,6 +526,11 @@ int alarm_start(struct alarm *alarm, ktime_t start)
 	struct alarm_base *base = &alarm_bases[alarm->type];
 	unsigned long flags;
 	int ret;
+
+	if (rtc_wake_control) {
+		printk("[PM] return alarm for rtc_wake_control = %s\n", rtc_wake_control ? "True" : "False");
+		return 0;
+	}
 
 	spin_lock_irqsave(&base->lock, flags);
 	alarm->node.expires = start;
@@ -862,6 +825,15 @@ static int alarm_timer_set(struct k_itimer *timr, int flags,
 
 	/* start the timer */
 	timr->it.alarm.interval = timespec_to_ktime(new_setting->it_interval);
+
+	/*
+	 * Rate limit to the tick as a hot fix to prevent DOS. Will be
+	 * mopped up later.
+	 */
+	if (timr->it.alarm.interval.tv64 &&
+			ktime_to_ns(timr->it.alarm.interval) < TICK_NSEC)
+		timr->it.alarm.interval = ktime_set(0, TICK_NSEC);
+
 	exp = timespec_to_ktime(new_setting->it_value);
 	/* Convert (if necessary) to absolute time */
 	if (flags != TIMER_ABSTIME) {
@@ -1036,7 +1008,7 @@ static int alarm_timer_nsleep(const clockid_t which_clock, int flags,
 			goto out;
 	}
 
-	restart = &current_thread_info()->restart_block;
+	restart = &current->restart_block;
 	restart->fn = alarm_timer_nsleep_restart;
 	restart->nanosleep.clockid = type;
 	restart->nanosleep.expires = exp.tv64;

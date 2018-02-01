@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,7 @@
 #include <linux/io.h>
 #include <asm-generic/sizes.h>
 #include <linux/msm_rtb.h>
+#include <asm/timex.h>
 
 #define SENTINEL_BYTE_1 0xFF
 #define SENTINEL_BYTE_2 0xAA
@@ -102,6 +103,11 @@ static void msm_rtb_write_timestamp(struct msm_rtb_layout *start)
 	start->timestamp = sched_clock();
 }
 
+static void msm_rtb_write_cyclecount(struct msm_rtb_layout *start)
+{
+	start->cycle_count = get_cycles();
+}
+
 static void uncached_logk_pc_idx(enum logk_event_type log_type, uint64_t caller,
 				 uint64_t data, int idx)
 {
@@ -115,6 +121,7 @@ static void uncached_logk_pc_idx(enum logk_event_type log_type, uint64_t caller,
 	msm_rtb_write_idx(idx, start);
 	msm_rtb_write_data(data, start);
 	msm_rtb_write_timestamp(start);
+	msm_rtb_write_cyclecount(start);
 	mb();
 
 	return;

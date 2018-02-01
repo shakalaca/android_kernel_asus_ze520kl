@@ -15,7 +15,17 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 
-int msm_show_resume_irq_mask=1; /*[PM] Disable mask  for print IRQ triggered  during gic_show_resume_irq() in kernel/drivers/irqchip/irq-gic.c */
+/*ASUS_BSP Freddy:
+* msm_show_resume_irq_mask manual debug node is "/sys/module/msm_show_resume_irq/parameters/debug_mask"
+*
+* irq-gic-v3.c will include "irq-gic-common.h", which extern msm_show_resume_irq_mask.
+* pinctrl-msm.c  extern msm_show_resume_irq_mask.
+*
+* If "debug_mask" or "msm_show_resume_irq_mask" is True, "gic_show_resume_irq" and "msm_show_resume_irq_mask" will dump more info.
+*/
+/*[PM] Disable mask  for print IRQ triggered  during gic_show_resume_irq() in kernel/drivers/irqchip/irq-gic.c */
+
+int msm_show_resume_irq_mask=1;
 
 module_param_named(
 	debug_mask, msm_show_resume_irq_mask, int, S_IRUGO | S_IWUSR | S_IWGRP

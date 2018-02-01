@@ -516,7 +516,7 @@ limCheckMgmtRegisteredFrames(tpAniSirGlobal pMac, tANI_U8 *pBd,
 
         /* Indicate this to SME */
         limSendSmeMgmtFrameInd( pMac, pLimMgmtRegistration->sessionId,
-                                pBd, psessionEntry, 0);
+                                pBd, psessionEntry, WDA_GET_RX_RSSI_DB(pBd));
     
         if ( (type == SIR_MAC_MGMT_FRAME) && (fc.type == SIR_MAC_MGMT_FRAME)
               && (subType == SIR_MAC_MGMT_RESERVED15) )
@@ -679,6 +679,71 @@ limProcessEXTScanRealTimeData(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo)
 } /*** end limProcessEXTScanRealTimeData() ***/
 #endif /* WLAN_FEATURE_EXTSCAN */
 
+#ifdef SAP_AUTH_OFFLOAD
+/*
+ * lim_process_sap_offload_indication: function to process add sta/ del sta
+ *                   indication for SAP auth offload.
+ *
+ * @pMac: mac context
+ * @pRxPacketInfo: rx buffer
+ *
+ * This Function will go through buffer and if
+ * indication type is ADD_STA_IND, function will extract all data related to
+ * client and will call limAddSta
+ * and if indication type is DEL_STA_IND, function will call
+ * limSendSmeDisassocInd to do cleanup for station.
+ *
+ * Return : none
+ */
+static void lim_process_sap_offload_indication(tpAniSirGlobal pMac,
+        tANI_U8 *pRxPacketInfo)
+{
+    int i = 0;
+    tSapOfldIndications *sap_offload_indication_rx_buf =
+        (tSapOfldIndications *)WDA_GET_RX_MPDU_DATA(pRxPacketInfo);
+    tSapOfldInd *sap_offload_ind =
+        (tSapOfldInd*)sap_offload_indication_rx_buf->indications;
+
+    limLog( pMac, LOG1,
+            FL("Notify SME with Sap Offload ind and indication type is %d  num_indication %d \n"),
+            sap_offload_ind->indType,
+            (tANI_U8) sap_offload_indication_rx_buf->num_indications);
+
+    for (i=1; i <= (tANI_U8)(sap_offload_indication_rx_buf->num_indications);
+            i++)
+    {
+        if (sap_offload_ind->indType == SAP_OFFLOAD_ADD_STA_IND)
+        {
+            tSapOfldAddStaIndMsg *add_sta;
+            limLog( pMac, LOG1,
+                FL("Indication type is SAP_OFFLOAD_ADD_STA_IND"));
+            add_sta = (tSapOfldAddStaIndMsg *)sap_offload_ind->indication;
+            lim_sap_offload_add_sta(pMac, add_sta);
+            if (sap_offload_indication_rx_buf->num_indications > 1)
+                sap_offload_ind =
+                    (tSapOfldInd *)((tANI_U8 *)sap_offload_ind +
+                        sizeof(tSapOfldAddStaIndMsg) - sizeof(tANI_U8)+
+                        add_sta->data_len + sizeof(tANI_U32));
+        }
+        else if (sap_offload_ind->indType == SAP_OFFLOAD_DEL_STA_IND)
+        {
+            tSapOfldDelStaIndMsg *del_sta;
+            limLog( pMac, LOG1,
+                FL("Indication type is SAP_OFFLOAD_DEL_STA_IND"));
+            del_sta = (tSapOfldDelStaIndMsg *)sap_offload_ind->indication;
+            lim_sap_offload_del_sta(pMac, del_sta);
+            sap_offload_ind = (tSapOfldInd *)((tANI_U8 *)sap_offload_ind +
+                    sizeof(tSapOfldDelStaIndMsg) + sizeof(tANI_U32));
+        }
+        else
+        {
+            limLog(pMac, LOGE, FL("No Valid indication for connected station"));
+        }
+    }
+
+}
+#endif
+
 /**
  * limHandle80211Frames()
  *
@@ -716,6 +781,15 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
     *pDeferMsg= false;
     limGetBDfromRxPacket(pMac, limMsg->bodyptr, (tANI_U32 **)&pRxPacketInfo);
 
+#ifdef SAP_AUTH_OFFLOAD
+    if ((WDA_GET_SAP_AUTHOFFLOADIND(pRxPacketInfo)  == 1) &&
+         pMac->sap_auth_offload)
+    {
+        lim_process_sap_offload_indication(pMac, pRxPacketInfo);
+        goto end;
+    }
+#endif
+
 #ifdef WLAN_FEATURE_EXTSCAN
 
     if ( WDA_GET_EXTSCANFULLSCANRESIND(pRxPacketInfo))
@@ -752,6 +826,11 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
 #ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
     if (WDA_GET_ROAMCANDIDATEIND(pRxPacketInfo))
     {
+        if (vos_check_monitor_state())
+        {
+            limLog( pMac, LOGW, FL("Ignore raom candidate when roam started"));
+            goto end;
+        }
         limLog( pMac, LOGW, FL("Notify SME with candidate ind"));
 
         if (WDA_IF_PER_ROAMCANDIDATEIND(pRxPacketInfo) &&
@@ -1647,7 +1726,8 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
 #endif /* FEATURE_WLAN_ESE && FEATURE_WLAN_ESE_UPLOAD */
         case eWNI_SME_MAC_SPOOF_ADDR_IND:
         case eWNI_SME_REGISTER_MGMT_FRAME_CB:
-        case eWNI_SME_DEL_TEST_BA:
+        case eWNI_SME_SET_CHAN_SW_IE_REQ:
+        case eWNI_SME_ECSA_CHAN_CHANGE_REQ:
             // These messages are from HDD
             limProcessNormalHddMsg(pMac, limMsg, false);   //no need to response to hdd
             break;
@@ -1849,6 +1929,11 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
             limHandleBmpsStatusInd(pMac);
             break;
 
+#ifdef WLAN_FEATURE_APFIND
+        case WDA_AP_FIND_IND:
+            limHandleAPFindInd(pMac);
+            break;
+#endif
         case WDA_MISSED_BEACON_IND:
             limHandleMissedBeaconInd(pMac, limMsg);
             vos_mem_free(limMsg->bodyptr);
@@ -1930,6 +2015,7 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         case SIR_LIM_DEAUTH_ACK_TIMEOUT:
         case SIR_LIM_CONVERT_ACTIVE_CHANNEL_TO_PASSIVE:
         case SIR_LIM_AUTH_RETRY_TIMEOUT:
+        case SIR_LIM_SAP_ECSA_TIMEOUT:
 #ifdef WLAN_FEATURE_LFR_MBB
         case SIR_LIM_PREAUTH_MBB_RSP_TIMEOUT:
         case SIR_LIM_REASSOC_MBB_RSP_TIMEOUT:
@@ -2282,7 +2368,7 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         {
             tpPESession     psessionEntry;
             tANI_U8         sessionId;
-            tDphHashNode   *pStaDs;
+            tDphHashNode   *pStaDs = NULL;
             int i, aid;
             tTdlsLinkEstablishParams *pTdlsLinkEstablishParams;
             pTdlsLinkEstablishParams = (tTdlsLinkEstablishParams*) limMsg->bodyptr;
@@ -2319,10 +2405,16 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
                     }
                 }
 send_link_resp:
-                limSendSmeTdlsLinkEstablishReqRsp(pMac,
+                if (pStaDs)
+                   limSendSmeTdlsLinkEstablishReqRsp(pMac,
                                                   psessionEntry->smeSessionId,
                                                   pStaDs->staAddr,
                                                   pStaDs,
+                                                  pTdlsLinkEstablishParams->status) ;
+                else
+                   limSendSmeTdlsLinkEstablishReqRsp(pMac,
+                                                  psessionEntry->smeSessionId,
+                                                  NULL, NULL,
                                                   pTdlsLinkEstablishParams->status) ;
             }
             vos_mem_free((v_VOID_t *)(limMsg->bodyptr));
@@ -2334,7 +2426,7 @@ send_link_resp:
         {
             tpPESession     psessionEntry;
             tANI_U8         sessionId;
-            tDphHashNode   *pStaDs;
+            tDphHashNode   *pStaDs = NULL;
             int i, aid;
             tTdlsChanSwitchParams *pTdlsChanSwitchParams;
             pTdlsChanSwitchParams = (tTdlsChanSwitchParams*) limMsg->bodyptr;
@@ -2371,11 +2463,17 @@ send_link_resp:
                     }
                 }
 send_chan_switch_resp:
-                limSendSmeTdlsChanSwitchReqRsp(pMac,
+                if (pStaDs)
+                    limSendSmeTdlsChanSwitchReqRsp(pMac,
                                                   psessionEntry->smeSessionId,
                                                   pStaDs->staAddr,
                                                   pStaDs,
-                                                  pTdlsChanSwitchParams->status) ;
+                                                  pTdlsChanSwitchParams->status);
+               else
+                    limSendSmeTdlsChanSwitchReqRsp(pMac,
+                                                  psessionEntry->smeSessionId,
+                                                  NULL, NULL,
+                                                  pTdlsChanSwitchParams->status);
             }
             vos_mem_free((v_VOID_t *)(limMsg->bodyptr));
             limMsg->bodyptr = NULL;
@@ -2433,6 +2531,25 @@ send_chan_switch_resp:
          limMsg->bodyptr = NULL;
          break;
 
+    case eWNI_SME_CAP_TSF_REQ:
+        lim_process_sme_cap_tsf_req(pMac, limMsg->bodyptr);
+        vos_mem_free((v_VOID_t*)limMsg->bodyptr);
+        limMsg->bodyptr = NULL;
+        break;
+
+    case eWNI_SME_GET_TSF_REQ:
+        lim_process_sme_get_tsf_req(pMac, limMsg->bodyptr);
+        vos_mem_free((v_VOID_t*)limMsg->bodyptr);
+        limMsg->bodyptr = NULL;
+        break;
+    case eWNI_SME_DEL_BA_SES_REQ:
+        lim_process_sme_del_ba_ses_req(pMac, limMsg->bodyptr);
+        vos_mem_free((v_VOID_t*)limMsg->bodyptr);
+        limMsg->bodyptr = NULL;
+        break;
+    case eWNI_SME_STA_DEL_BA_REQ:
+        limStaDelBASession(pMac);
+        break;
     default:
         vos_mem_free((v_VOID_t*)limMsg->bodyptr);
         limMsg->bodyptr = NULL;

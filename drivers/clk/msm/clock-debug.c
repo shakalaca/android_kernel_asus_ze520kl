@@ -34,9 +34,11 @@ static LIST_HEAD(clk_list);
 static DEFINE_MUTEX(clk_list_lock);
 
 static struct dentry *debugfs_base;
+/*ASUS_BSP Freddy +++ : Turn on clk count during suspend/resume for debug*/
 /*[PM] Enable clock_debug_print_enabled_clocks() during suspend for clock count debug.*/
 /*[PM] ./sys/kernel/debug/clk/debug_suspend */
 static u32 debug_suspend=1;
+/*ASUS_BSP Freddy --- : Turn on clk count during suspend/resume for debug*/
 
 static int clock_debug_rate_set(void *data, u64 val)
 {
@@ -278,8 +280,10 @@ do {							\
 	else						\
 		pr_info(fmt, ##__VA_ARGS__);		\
 } while (0)
-static bool bIsCXO_clk = false;
-static bool b_clk_dump = false;
+
+/*ASUS_BSP Freddy +++ : Turn on clk count during suspend/resume for debug*/
+static bool bIsCXO_clk = false;	/*for cxo_clk_src exists*/
+static bool b_clk_dump = false;	/*for manual debug mode*//*[PM] ./sys/module/clock_debug/parameters/force_clk_dump*/
 static int clock_debug_print_clock(struct clk *c, struct seq_file *m)
 {
 	char *start = "";
@@ -306,8 +310,8 @@ static int clock_debug_print_clock(struct clk *c, struct seq_file *m)
 		}
 	} while ((c = clk_get_parent(c)));
 	//[+++]Only dump active clcoks when cxo_clk_src exists
-	if ((bIsCXO_clk == true) || (b_clk_dump == true))
-	clock_debug_output(m, 1, "\n");
+	//if ((bIsCXO_clk == true) || (b_clk_dump == true))
+	//clock_debug_output(m, 1, "\n");	//remove this for wifi hotspot on, log is too much.
 	//[---]Only dump active clcoks when cxo_clk_src exists
 
 	return 1;
@@ -343,6 +347,7 @@ static void clock_debug_print_enabled_clocks(struct seq_file *m)
 		clock_debug_output(m, 0, "No clocks enabled.\n");
 	bIsCXO_clk = false; /*[PM] Reset this flag after clock_debug_print_enabled_clocks()*/
 }
+/*ASUS_BSP Freddy --- : Turn on clk count during suspend/resume for debug*/
 
 static int enabled_clocks_show(struct seq_file *m, void *unused)
 {

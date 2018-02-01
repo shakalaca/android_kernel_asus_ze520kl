@@ -961,7 +961,7 @@ limProcessMlmReassocCnf(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
      */
     if (pMac->ft.ftPEContext.pFTPreAuthReq)
     {
-        limLog(pMac, LOG1, "%s: Freeing pFTPreAuthReq= %p", __func__,
+        limLog(pMac, LOG1, "%s: Freeing pFTPreAuthReq= %pK", __func__,
                pMac->ft.ftPEContext.pFTPreAuthReq);
         if (pMac->ft.ftPEContext.pFTPreAuthReq->pbssDescription)
         {
@@ -1072,8 +1072,15 @@ limProcessMlmReassocInd(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
     }
     sirStoreU16N((tANI_U8 *) &pSirSmeReassocInd->messageType,
                  eWNI_SME_REASSOC_IND);
-    limReassocIndSerDes(pMac, (tpLimMlmReassocInd) pMsgBuf,
-                        (tANI_U8 *) &(pSirSmeReassocInd->length), psessionEntry);
+    if (limReassocIndSerDes(pMac, (tpLimMlmReassocInd) pMsgBuf,
+                        (tANI_U8 *) &(pSirSmeReassocInd->length),
+                         psessionEntry, sizeof(tSirSmeReassocInd))
+                        != eSIR_SUCCESS)
+    {
+        limLog(pMac, LOGE,FL(" Received SME message with invalid rem length"));
+        vos_mem_free(pSirSmeReassocInd);
+        return;
+    }
 
     // Required for indicating the frames to upper layer
     pSirSmeReassocInd->assocReqLength = ((tpLimMlmReassocInd) pMsgBuf)->assocReqLength;
@@ -1145,8 +1152,14 @@ limProcessMlmAuthInd(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
         return;
     }
     limCopyU16((tANI_U8 *) &pSirSmeAuthInd->messageType, eWNI_SME_AUTH_IND);
-    limAuthIndSerDes(pMac, (tpLimMlmAuthInd) pMsgBuf,
-                        (tANI_U8 *) &(pSirSmeAuthInd->length));
+    if (limAuthIndSerDes(pMac, (tpLimMlmAuthInd) pMsgBuf,
+                        (tANI_U8 *) &(pSirSmeAuthInd->length),
+                         sizeof(tSirSmeAuthInd)) != eSIR_SUCCESS)
+    {
+        limLog(pMac, LOGE,FL(" Received SME message with invalid rem length"));
+        vos_mem_free(pSirSmeAuthInd);
+        return;
+    }
     msgQ.type = eWNI_SME_AUTH_IND;
     msgQ.bodyptr = pSirSmeAuthInd;
     msgQ.bodyval = 0;
@@ -1220,6 +1233,13 @@ limFillAssocIndParams(tpAniSirGlobal pMac, tpLimMlmAssocInd pAssocInd,
 #endif
     // Fill in rate flags
     pSirSmeAssocInd->rate_flags = pAssocInd->rate_flags;
+
+    pSirSmeAssocInd->ch_width = pAssocInd->ch_width;
+    pSirSmeAssocInd->chan_info = pAssocInd->chan_info;
+    if (pAssocInd->HTCaps.present)
+        pSirSmeAssocInd->HTCaps = pAssocInd->HTCaps;
+    if (pAssocInd->VHTCaps.present)
+        pSirSmeAssocInd->VHTCaps = pAssocInd->VHTCaps;
 } /*** end limAssocIndSerDes() ***/
 
 
@@ -1270,6 +1290,7 @@ limProcessMlmAssocInd(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
                FL("call to AllocateMemory failed for eWNI_SME_ASSOC_IND"));
         return;
     }
+    vos_mem_zero(pSirSmeAssocInd, len);
 
     pSirSmeAssocInd->messageType = eWNI_SME_ASSOC_IND;
     limFillAssocIndParams(pMac, (tpLimMlmAssocInd) pMsgBuf, pSirSmeAssocInd, psessionEntry);
@@ -4127,7 +4148,7 @@ void limProcessSwitchChannelRsp(tpAniSirGlobal pMac,  void *body)
     channelChangeReasonCode = psessionEntry->channelChangeReasonCode;
     // initialize it back to invalid id
     psessionEntry->channelChangeReasonCode = 0xBAD;
-    limLog(pMac, LOG1, FL("channelChangeReasonCode %d"),channelChangeReasonCode);
+    limLog(pMac, LOGE, FL("channelChangeReasonCode %d status %d"),channelChangeReasonCode, pChnlParams->status);
     switch(channelChangeReasonCode)
     {
         case LIM_SWITCH_CHANNEL_REASSOC:
@@ -4167,6 +4188,10 @@ void limProcessSwitchChannelRsp(tpAniSirGlobal pMac,  void *body)
                 }
                 pMac->lim.gpchangeChannelCallback(pMac, status, pMac->lim.gpchangeChannelData, psessionEntry);
             }
+            break;
+        case LIM_SWITCH_CHANNEL_SAP_ECSA:
+            lim_send_sme_ap_channel_switch_resp(pMac,
+                                                psessionEntry, pChnlParams);
             break;
         default:
             break;

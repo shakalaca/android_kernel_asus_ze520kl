@@ -50,7 +50,7 @@
 #define TYPEC_DFP_STATUS_REG(base)	(base +	0x09)
 #define VALID_DFP_MASK			TYPEC_MASK(6, 4)
 
-#define TYPEC_SW_CTL_REG(base)		(base +	0x52)	//Austin_T : register 0xBF52
+#define TYPEC_SW_CTL_REG(base)		(base + 0x52)
 #define CABLE_RP_CONNECT_THRESHOLD_BIT	BIT(1)
 
 #define TYPEC_STD_MA			500		//Austin_T:900>>500

@@ -43,9 +43,11 @@ struct msm_ois_vreg {
 
 /*ASUS_BSP +++ bill_chen "Implement ois"*/
 struct msm_ois_board_info {
-	uint16_t i2c_slaveaddr;
+	char ois_name[MAX_OIS_NAME_SIZE];
+	uint32_t i2c_slaveaddr;
 	struct msm_camera_power_ctrl_t power_info;
 	enum i2c_freq_mode_t i2c_freq_mode;
+	struct msm_ois_opcode opcode;
 };
 /*ASUS_BSP --- bill_chen "Implement ois"*/
 
@@ -78,8 +80,6 @@ struct msm_ois_ctrl_t {
 	/*ASUS_BSP --- bill_chen "Implement ois"*/
 };
 
-
-
 /*ASUS_BSP +++ bill_chen "Implement ois"*/
 #define OIS_READ_CALIBRATION_COUNT 16
 #define OIS_READ_CALIBRATION_SHIFT 4
@@ -95,9 +95,7 @@ int COEFFICIENT_DOWNLOAD_OIS_FW_LENGTH;
 
 uint16_t OIS_CALIBRATION_GRYO_OFFSET_X[OIS_READ_CALIBRATION_COUNT + 1] = {0x0};
 uint16_t OIS_CALIBRATION_GRYO_OFFSET_Y[OIS_READ_CALIBRATION_COUNT + 1] = {0x0};
-
 uint16_t debug_calibration_data[6000] = {0x0};
-
 /*{write ois address from eeprom, value}*/
 uint16_t OIS_EEPROM_WRITE_ADDR_VALUE[] = {
    /*HALL*/
@@ -153,7 +151,6 @@ uint16_t OIS_GYRO_ACC_VALUE[] = {
 	0x8280,  /*ACC X*/
 	0x82C0   /*ACC Y*/
 };
-
 
 /* Read many words(two bytes one time) from file */
 static int Sysfs_read_word_seq(char *filename, int *value, int size);
@@ -360,5 +357,4 @@ static struct reg_settings_ois_t ois_test_setting_array[] = {
 };
 
 /*ASUS_BSP --- bill_chen "Implement ois"*/
-
 #endif

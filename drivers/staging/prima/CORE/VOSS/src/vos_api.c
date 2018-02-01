@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -83,7 +83,7 @@
 #include "bapInternal.h"
 #include "bap_hdd_main.h"
 #endif //WLAN_BTAMP_FEATURE
-
+#include "wlan_qct_wdi_cts.h"
 
 /*---------------------------------------------------------------------------
  * Preprocessor Definitions and Constants
@@ -100,6 +100,9 @@
 /* Approximate amount of time to wait for WDA to issue a DUMP req */
 #define VOS_WDA_RESP_TIMEOUT WDA_STOP_TIMEOUT
 
+/* Trace index for WDI Read/Write */
+#define VOS_TRACE_INDEX_MAX 256
+
 /* ARP Target IP offset */
 #define VOS_ARP_TARGET_IP_OFFSET 58
 
@@ -109,6 +112,16 @@
 static VosContextType  gVosContext;
 static pVosContextType gpVosContext;
 static v_U8_t vos_multicast_logging;
+
+struct vos_wdi_trace
+{
+   vos_wdi_trace_event_type event;
+   uint16        message;
+   uint64        time;
+};
+
+static struct vos_wdi_trace gvos_wdi_msg_trace[VOS_TRACE_INDEX_MAX];
+uint16 gvos_wdi_msg_trace_index = 0;
 
 /*---------------------------------------------------------------------------
  * Forward declaration
@@ -271,7 +284,6 @@ VOS_STATUS vos_open( v_CONTEXT_t *pVosContext, void *devHandle )
 
    /* Initialize the timer module */
    vos_timer_module_init();
-
 
    /* Initialize the probe event */
    if (vos_event_init(&gpVosContext->ProbeEvent) != VOS_STATUS_SUCCESS)
@@ -445,6 +457,8 @@ VOS_STATUS vos_open( v_CONTEXT_t *pVosContext, void *devHandle )
    VOS_TRACE( VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_INFO_HIGH,
                "%s: VOSS successfully Opened", __func__);
 
+   gpVosContext->snoc_high_freq_voting = false;
+   spin_lock_init(&gpVosContext->freq_voting_lock);
    *pVosContext = gpVosContext;
 
    return VOS_STATUS_SUCCESS;
@@ -902,6 +916,12 @@ VOS_STATUS vos_start( v_CONTEXT_t vosContext )
      if ( vStatus == VOS_STATUS_E_TIMEOUT )
      {
          WDA_setNeedShutdown(vosContext);
+         vos_smd_dump_stats();
+         vos_dump_wdi_events();
+         VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+               "%s: Test MC thread by posting a probe message to SYS",
+                __func__);
+         wlan_sys_probe();
      }
      VOS_ASSERT(0);
      return VOS_STATUS_E_FAILURE;
@@ -1211,6 +1231,8 @@ VOS_STATUS vos_close( v_CONTEXT_t vosContext )
       VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
                 "%s: Could not deinit roamDelayStats", __func__);
   }
+
+  vos_wdthread_flush_timer_work();
 
   return VOS_STATUS_SUCCESS;
 }
@@ -1829,7 +1851,7 @@ VOS_STATUS __vos_fatal_event_logs_req( uint32_t is_fatal,
         return VOS_STATUS_E_FAILURE;
     }
 
-    if(!pHddCtx->cfg_ini->enableFatalEvent)
+    if (!pHddCtx->cfg_ini->enableFatalEvent || !pHddCtx->is_fatal_event_log_sup)
     {
        VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_INFO,
             "%s: Fatal event not enabled", __func__);
@@ -3268,6 +3290,59 @@ void vos_set_rx_wow_dump(bool value)
 }
 
 /**
+ * vos_set_hdd_bad_sta() - Set bad link peer sta id
+ * @sta_id: sta id of the bad peer
+ *
+ * Return none.
+ */
+void vos_set_hdd_bad_sta(uint8_t sta_id)
+{
+    hdd_context_t *pHddCtx = NULL;
+    v_CONTEXT_t pVosContext = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
+
+    if(!pVosContext)
+    {
+       hddLog(VOS_TRACE_LEVEL_FATAL,"%s: Global VOS context is Null", __func__);
+       return;
+    }
+
+    pHddCtx = (hdd_context_t *)vos_get_context(VOS_MODULE_ID_HDD, pVosContext );
+    if(!pHddCtx) {
+       VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_FATAL,
+                "%s: HDD context is Null", __func__);
+       return;
+    }
+
+    pHddCtx->bad_sta[sta_id] = 1;
+}
+
+/**
+ * vos_reset_hdd_bad_sta() - Reset the bad peer sta_id
+ * @sta_id: sta id of the peer
+ *
+ * Return none.
+ */
+void vos_reset_hdd_bad_sta(uint8_t sta_id)
+{
+    hdd_context_t *pHddCtx = NULL;
+    v_CONTEXT_t pVosContext = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
+
+    if(!pVosContext) {
+       hddLog(VOS_TRACE_LEVEL_FATAL,"%s: Global VOS context is Null", __func__);
+       return;
+    }
+
+    pHddCtx = (hdd_context_t *)vos_get_context(VOS_MODULE_ID_HDD, pVosContext );
+    if(!pHddCtx) {
+       VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_FATAL,
+                "%s: HDD context is Null", __func__);
+       return;
+    }
+
+    pHddCtx->bad_sta[sta_id] = 0;
+}
+
+/**
  * vos_probe_threads() - VOS API to post messages
  * to all the threads to detect if they are active or not
  *
@@ -3541,6 +3616,16 @@ void get_rate_and_MCS(per_packet_stats *stats, uint32 rateindex)
     stats->MCS.short_gi = ratetbl->short_gi;
 }
 
+v_U16_t vos_get_rate_from_rateidx(uint32 rateindex)
+{
+	v_U16_t rate = 0;
+
+	if (rateindex < STATS_MAX_RATE_INDEX)
+		rate = rateidx_to_rate_bw_preamble_sgi_table[rateindex].rate;
+
+	return rate;
+}
+
 bool vos_isPktStatsEnabled(void)
 {
     bool value;
@@ -3611,6 +3696,81 @@ v_BOOL_t vos_is_probe_rsp_offload_enabled(void)
 	}
 
 	return pHddCtx->cfg_ini->sap_probe_resp_offload;
+}
+
+
+/**
+ * vos_set_snoc_high_freq_voting() - enable/disable high freq voting
+ * @enable: true if need to be enabled
+ *
+ * enable/disable high freq voting
+ *
+ * Return: Void
+ */
+#ifdef HAVE_WCNSS_SNOC_HIGH_FREQ_VOTING
+void vos_set_snoc_high_freq_voting(bool enable)
+{
+   VosContextType *vos_ctx = NULL;
+
+   /* Get the Global VOSS Context */
+   vos_ctx = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
+
+   if (!vos_ctx) {
+      VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+            "%s: vos context is NULL", __func__);
+      return;
+   }
+
+   spin_lock(&vos_ctx->freq_voting_lock);
+   if (vos_ctx->snoc_high_freq_voting != enable)
+   {
+      vos_ctx->snoc_high_freq_voting = enable;
+      spin_unlock(&vos_ctx->freq_voting_lock);
+      wcnss_snoc_vote(enable);
+      return;
+   }
+   spin_unlock(&vos_ctx->freq_voting_lock);
+}
+#else
+void vos_set_snoc_high_freq_voting(bool enable)
+{
+   return;
+}
+#endif
+
+void vos_smd_dump_stats(void)
+{
+  WCTS_Dump_Smd_status();
+}
+
+void vos_log_wdi_event(uint16 msg, vos_wdi_trace_event_type event)
+{
+
+   if (gvos_wdi_msg_trace_index >= VOS_TRACE_INDEX_MAX)
+   {
+          gvos_wdi_msg_trace_index = 0;
+   }
+
+   gvos_wdi_msg_trace[gvos_wdi_msg_trace_index].event = event;
+   gvos_wdi_msg_trace[gvos_wdi_msg_trace_index].time =
+                                 vos_get_monotonic_boottime();
+   gvos_wdi_msg_trace[gvos_wdi_msg_trace_index].message =  msg;
+   gvos_wdi_msg_trace_index++;
+
+   return;
+}
+
+void vos_dump_wdi_events(void)
+{
+   int i;
+
+   for(i = 0; i < VOS_TRACE_INDEX_MAX; i++) {
+            VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+            "%s:event:%d time:%lld msg:%d ",__func__,
+            gvos_wdi_msg_trace[i].event,
+            gvos_wdi_msg_trace[i].time,
+            gvos_wdi_msg_trace[i].message);
+  }
 }
 
 /**
@@ -3740,4 +3900,19 @@ void vos_update_arp_rx_drop_reorder(void)
    }
 
    pAdapter->hdd_stats.hddArpStats.rx_host_drop_reorder++;
+}
+
+v_BOOL_t vos_check_monitor_state(void)
+{
+	hdd_context_t *hdd_ctx;
+
+	v_CONTEXT_t vos_ctx = vos_get_global_context(VOS_MODULE_ID_HDD, NULL);
+	if (!vos_ctx)
+		return VOS_FALSE;
+
+	hdd_ctx = vos_get_context(VOS_MODULE_ID_HDD, vos_ctx);
+	if (!hdd_ctx)
+		return VOS_FALSE;
+
+	return wlan_hdd_check_monitor_state(hdd_ctx);
 }

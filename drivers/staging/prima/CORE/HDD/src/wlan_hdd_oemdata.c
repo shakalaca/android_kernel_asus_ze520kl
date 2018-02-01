@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -911,7 +911,7 @@ static int oem_msg_callback(struct sk_buff *skb)
       }
       aniMsgBody = (char *)((char *)msg_hdr + sizeof(tAniMsgHdr));
       oemMsgSubType = (tANI_U32*) aniMsgBody;
-      hddLog(LOGE, FL("oemMsgSubType: 0x%x"), *oemMsgSubType);
+      hddLog(LOG1, FL("oemMsgSubType: 0x%x"), *oemMsgSubType);
 
       oem_process_data_req_msg(msg_hdr->length,
                               (char *) ((char *)msg_hdr +
@@ -990,6 +990,21 @@ int oem_activate_service(void *pAdapter)
    /* Register the msg handler for msgs addressed to WLAN_NL_MSG_OEM */
    nl_srv_register(WLAN_NL_MSG_OEM, __oem_msg_callback);
    return 0;
+}
+
+/**---------------------------------------------------------------------------
+
+  \brief oem_deactivate_service() - Deactivate oem message handler
+
+  This function unregisters a handler to receive netlink message from
+  an OEM application process.
+
+  \return - none
+  --------------------------------------------------------------------------*/
+void oem_deactivate_service()
+{
+   /* unregister the msg handler for msgs addressed to WLAN_NL_MSG_OEM */
+   nl_srv_unregister(WLAN_NL_MSG_OEM, __oem_msg_callback);
 }
 
 

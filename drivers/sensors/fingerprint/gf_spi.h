@@ -21,6 +21,7 @@ struct gf_key_map
 {
     char *name;
     unsigned short val;
+	unsigned short report_val;
 };
 
 #define  GF_IOC_MAGIC         'G'
@@ -35,8 +36,9 @@ struct gf_key_map
 #define  GF_IOC_PM_FBCABCK  _IO(GF_IOC_MAGIC, 8)
 #define  GF_IOC_POWER_ON   _IO(GF_IOC_MAGIC, 9)
 #define  GF_IOC_POWER_OFF  _IO(GF_IOC_MAGIC, 10)
+#define  GF_IOC_WAKE_LOCK  _IO(GF_IOC_MAGIC, 13)
 
-#define  GF_IOC_MAXNR    11
+#define  GF_IOC_MAXNR    16
 
 /*#define AP_CONTROL_CLK       1 */
 #define  USE_PLATFORM_BUS    1

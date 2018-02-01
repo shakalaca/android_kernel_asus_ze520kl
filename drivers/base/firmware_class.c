@@ -302,7 +302,9 @@ static const char * const fw_path[] = {
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
-	"/lib/firmware"
+	"/lib/firmware",
+	"/lib64/firmware",
+	"/lib/firmware/image"
 };
 
 /*
@@ -363,12 +365,15 @@ static int fw_get_filesystem_firmware(struct device *device,
 	int i;
 	int rc = -ENOENT;
 	char *path = __getname();
+
+	/* ASUS BSP : For Change Venus FW loading path to system/vendor/firmware +++*/
+	char v_name[6];
+	/* ASUS BSP ---*/
+
 	/* ASUS BSP : For Change ADSP FW loading path to system/etc/firmware +++*/
 	char fw_name[4];
 	/* ASUS BSP ---*/
-        /* ASUS BSP : For Change Venus FW loading path to system/etc/firmware +++*/
-        char v_name[5];
-        /* ASUS BSP ---*/
+        
 	if (!path)
 		return false;
 
@@ -381,20 +386,22 @@ static int fw_get_filesystem_firmware(struct device *device,
 
 		snprintf(path, PATH_MAX, "%s/%s", fw_path[i], buf->fw_id);
 
-		/* ASUS BSP : For Change ADSP FW loading path to system/etc/firmware */
-		snprintf(fw_name, 5, "%s", buf->fw_id);
-		if (!strcmp(fw_name, "adsp")  && i == 1 ) {
-			snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-			dev_err(device, "[Sensor] Try to load firmware : %s \n", path);
+		/* ASUS BSP : For Change Venus FW loading path to system/vendor/firmware */
+		snprintf(v_name, 6, "%s", buf->fw_id);
+		if (!strcmp(v_name, "venus")  && i == 1 ) {
+				snprintf(path, PATH_MAX, "%s/%s", "/system/vendor/firmware", buf->fw_id);
+				dev_err(device, "[Venus] Try to load firmware : %s \n", path);
 		}
 		/* ASUS BSP ---*/
-                /* ASUS BSP : For Change Venus FW loading path to system/etc/firmware */
-                snprintf(v_name, 6, "%s", buf->fw_id);
-                if (!strcmp(v_name, "venus")  && i == 1 ) {
-                        snprintf(path, PATH_MAX, "%s/%s", "/system/etc/firmware", buf->fw_id);
-                        dev_err(device, "[Venus] Try to load firmware : %s \n", path);
-                }
-                /* ASUS BSP ---*/
+
+		/* ASUS BSP : For Change ADSP FW loading path to system/vendor/firmware */
+		snprintf(fw_name, 5, "%s", buf->fw_id);
+		if (!strcmp(fw_name, "adsp")  && i == 1 ) {
+			snprintf(path, PATH_MAX, "%s/%s", "/system/vendor/firmware", buf->fw_id);
+			dev_err(device, "[ADSP] Try to load firmware : %s \n", path);
+		}
+		/* ASUS BSP ---*/
+               
 		file = filp_open(path, O_RDONLY, 0);
 		if (IS_ERR(file))
 			continue;

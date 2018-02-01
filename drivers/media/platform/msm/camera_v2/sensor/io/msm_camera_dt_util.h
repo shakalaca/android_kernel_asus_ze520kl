@@ -64,7 +64,6 @@ int msm_camera_get_dt_gpio_set_tbl(struct device_node *of_node,
 	struct msm_camera_gpio_conf *gconf, uint16_t *gpio_array,
 	uint16_t gpio_array_size);
 //ASUS_BSP --- bill_chen "Fix camera conflict"
-
 int msm_camera_pinctrl_init
 	(struct msm_pinctrl_info *sensor_pctrl, struct device *dev);
 

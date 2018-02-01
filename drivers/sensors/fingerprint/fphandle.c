@@ -195,22 +195,33 @@ static int vfsspi_sendDrdyNotify(struct fp_device_data *vfsSpiDev);
 #define SPIDEV_MAJOR		154	/* assigned */
 #define N_SPI_MINORS		32	/* ... up to 256 */
 
+// BEGIN: jacob_kung@asus.com: keycode for fingerprint gestures
+#define FRINGERPRINT_SWIPE_UP 827 // 827
+#define FRINGERPRINT_SWIPE_DOWN 828 // 828
+#define FRINGERPRINT_SWIPE_LEFT 829 // 829
+#define FRINGERPRINT_SWIPE_RIGHT 830 // 830
+#define FRINGERPRINT_TAP 831 // 831
+#define FRINGERPRINT_DTAP 832 // 832
+#define FRINGERPRINT_LONGPRESS 833 // 833
+// END: jacob_kung@asus.com
+
 static struct class *gf_class;
 struct gf_key_map key_map[] =
 {
-      {  "POWER",  KEY_POWER  },
-      {  "HOME" ,  KEY_HOME   },
-      {  "MENU" ,  KEY_MENU   },
-      {  "BACK" ,  KEY_BACK   },
-      {  "UP"   ,  FRINGERPRINT_SWIPE_UP     },
-      {  "DOWN" ,  FRINGERPRINT_SWIPE_DOWN   },
-      {  "LEFT" ,  FRINGERPRINT_SWIPE_LEFT   },
-      {  "RIGHT",  FRINGERPRINT_SWIPE_RIGHT  },
-      {  "TAP",  FRINGERPRINT_TAP  },
-      {  "DTAP",  FRINGERPRINT_DTAP  },
-      {  "LONGPRESS",  FRINGERPRINT_LONGPRESS  },
-      {  "FORCE",  KEY_F9     },
-      {  "CLICK",  KEY_F19    },
+      {  "POWER",  KEY_POWER,  KEY_POWER  },
+      {  "HOME" ,  KEY_HOME,  KEY_HOME   },
+      {  "MENU" ,  KEY_MENU,  KEY_MENU   },
+      {  "BACK" ,  KEY_BACK,  KEY_BACK   },
+      {  "FORCE",  KEY_F9,  KEY_F9     },
+      {  "CLICK",  KEY_F19,  KEY_F19    },
+      {  "UP"   ,  FRINGERPRINT_SWIPE_UP,  KEY_F17     },
+      {  "DOWN" ,  FRINGERPRINT_SWIPE_DOWN,  KEY_F18   },
+      {  "LEFT" ,  FRINGERPRINT_SWIPE_LEFT,  KEY_F19   },
+      {  "RIGHT",  FRINGERPRINT_SWIPE_RIGHT,  KEY_F20  },
+      {  "TAP",  FRINGERPRINT_TAP,  KEY_F21  },
+      {  "DTAP",  FRINGERPRINT_DTAP,  KEY_F22  },
+      {  "LONGPRESS",  FRINGERPRINT_LONGPRESS,  KEY_F23  },
+
 };
 
 
@@ -1205,7 +1216,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		for(i = 0; i< ARRAY_SIZE(key_map); i++) {
 			if(key_map[i].val == gf_key.key){
-				input_report_key(gf_dev->input, gf_key.key, gf_key.value);
+				input_report_key(gf_dev->input, key_map[i].report_val, gf_key.value);
 				input_sync(gf_dev->input);
 				break;
 			}
@@ -1247,6 +1258,9 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         else
             gf_power_off(gf_dev);
         gf_dev->device_available = 0;
+        break;
+    case GF_IOC_WAKE_LOCK:
+    	wake_lock_timeout(&gf_dev->wake_lock, msecs_to_jiffies(1000));
         break;
 	default:
 		gf_dbg("Unsupport cmd:0x%x\n", cmd);
@@ -1444,7 +1458,7 @@ static void gf_reg_key_kernel(struct fp_device_data *gf_dev)
 
     set_bit(EV_KEY, gf_dev->input->evbit); //tell the kernel is key event
     for(i = 0; i< ARRAY_SIZE(key_map); i++) {
-        set_bit(key_map[i].val, gf_dev->input->keybit);
+        set_bit(key_map[i].report_val, gf_dev->input->keybit);
     }
 
     gf_dev->input->name = GF_INPUT_NAME;

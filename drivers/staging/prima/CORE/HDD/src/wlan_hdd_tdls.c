@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -1388,6 +1388,12 @@ hddTdlsPeer_t *wlan_hdd_tdls_get_peer(hdd_adapter_t *pAdapter,
     return peer;
 }
 
+/*
+ * NOTE:
+ * The Callers of this function should ensure to release the
+ * tdls_lock before calling this function to avoid deadlocks.
+ */
+
 int wlan_hdd_tdls_set_cap(hdd_adapter_t *pAdapter,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,18,0))
                                    const u8* mac,
@@ -2361,7 +2367,7 @@ tANI_U16 wlan_hdd_tdlsConnectedPeers(hdd_adapter_t *pAdapter)
     if ((NULL == pAdapter) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic))
     {
         VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
-                  FL("invalid pAdapter: %p"), pAdapter);
+                  FL("invalid pAdapter: %pK"), pAdapter);
         return 0;
     }
     pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
@@ -2614,11 +2620,12 @@ void wlan_hdd_tdls_check_bmps(hdd_adapter_t *pAdapter)
     tdlsCtx_t *pHddTdlsCtx = NULL;
     hdd_context_t *pHddCtx = NULL;
     hddTdlsPeer_t *curr_peer;
+    VOS_STATUS status;
 
     if ((NULL == pAdapter) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic))
     {
         VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
-                  FL("invalid pAdapter: %p"), pAdapter);
+                  FL("invalid pAdapter: %pK"), pAdapter);
         return;
     }
 
@@ -2660,7 +2667,10 @@ void wlan_hdd_tdls_check_bmps(hdd_adapter_t *pAdapter)
             VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_WARN,
                        "%s: No TDLS peer connected/discovery sent. Enable BMPS",
                        __func__);
-            hdd_enable_bmps_imps(pHddCtx);
+            status = hdd_enable_bmps_imps(pHddCtx);
+
+            if (status == VOS_STATUS_SUCCESS)
+                pHddTdlsCtx->is_tdls_disabled_bmps = false;
         }
     }
     else
@@ -2670,7 +2680,10 @@ void wlan_hdd_tdls_check_bmps(hdd_adapter_t *pAdapter)
         {
             VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
                        "%s: TDLS peer connected. Disable BMPS", __func__);
-            hdd_disable_bmps_imps(pHddCtx, WLAN_HDD_INFRA_STATION);
+            status = hdd_disable_bmps_imps(pHddCtx, WLAN_HDD_INFRA_STATION);
+
+            if (status == VOS_STATUS_SUCCESS)
+                pHddTdlsCtx->is_tdls_disabled_bmps = true;
         }
     }
     return;
@@ -2856,6 +2869,18 @@ void wlan_hdd_tdls_set_mode(hdd_context_t *pHddCtx,
            {
                set_bit((unsigned long)source, &pHddCtx->tdls_source_bitmap);
                wlan_hdd_tdls_implicit_disable(pHddTdlsCtx);
+               if (pHddTdlsCtx->is_tdls_disabled_bmps) {
+                   if (FALSE == sme_IsPmcBmps(pHddCtx->hHal)) {
+                       VOS_TRACE( VOS_MODULE_ID_HDD,
+                               VOS_TRACE_LEVEL_DEBUG,
+                               "%s: TDLS is disabled. Enable BMPS",
+                               __func__);
+                       status = hdd_enable_bmps_imps(pHddCtx);
+
+                       if (status == VOS_STATUS_SUCCESS)
+                           pHddTdlsCtx->is_tdls_disabled_bmps = false;
+                   }
+               }
            }
            else if ((eTDLS_SUPPORT_EXPLICIT_TRIGGER_ONLY == tdls_mode))
            {
@@ -2918,13 +2943,6 @@ void wlan_hdd_tdls_implicit_send_discovery_request(tdlsCtx_t * pHddTdlsCtx)
                  FL("curr_peer is NULL"));
 
         return;
-    }
-
-    if (TRUE == sme_IsPmcBmps(WLAN_HDD_GET_HAL_CTX(pHddTdlsCtx->pAdapter)))
-    {
-        VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                   "%s: Disable BMPS", __func__);
-        hdd_disable_bmps_imps(pHddCtx, WLAN_HDD_INFRA_STATION);
     }
 
     /* This function is called in mutex_lock */
@@ -3003,7 +3021,7 @@ void wlan_hdd_tdls_check_power_save_prohibited(hdd_adapter_t *pAdapter)
     if ((NULL == pAdapter) || (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic))
     {
         VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
-                  FL("invalid pAdapter: %p"), pAdapter);
+                  FL("invalid pAdapter: %pK"), pAdapter);
         return;
     }
 
@@ -3625,5 +3643,43 @@ void wlan_hdd_start_stop_tdls_source_timer(hdd_context_t *pHddCtx,
 
     return;
 }
+
+void wlan_hdd_get_tdls_stats(hdd_adapter_t *pAdapter)
+{
+    hdd_context_t *pHddCtx = NULL;
+    tdlsCtx_t *pHddTdlsCtx = NULL;
+    tANI_U16 numConnectedTdlsPeers = 0;
+    tANI_U16 numDiscoverySentCnt = 0;
+
+    pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
+
+    ENTER();
+    if (0 != (wlan_hdd_validate_context(pHddCtx)))
+    {
+        return;
+    }
+
+    pHddTdlsCtx = WLAN_HDD_GET_TDLS_CTX_PTR(pAdapter);
+
+    mutex_lock(&pHddCtx->tdls_lock);
+    if (NULL == pHddTdlsCtx)
+    {
+        mutex_unlock(&pHddCtx->tdls_lock);
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
+                FL("pHddTdlsCtx points to NULL"));
+        return;
+    }
+    numConnectedTdlsPeers = pHddCtx->connected_peer_count;
+    numDiscoverySentCnt = pHddTdlsCtx->discovery_sent_cnt;
+    mutex_unlock(&pHddCtx->tdls_lock);
+
+    hddLog( LOGE, "%s: TDLS Mode: %d TDLS connected peer count %d"
+                  " DiscoverySentCnt=%d", __func__, pHddCtx->tdls_mode,
+                   numConnectedTdlsPeers, numDiscoverySentCnt);
+    EXIT();
+
+    return;
+}
+
 
 /*EXT TDLS*/

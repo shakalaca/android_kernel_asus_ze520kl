@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -152,6 +152,7 @@ struct sdhci_msm_pltfm_data {
 	u32 ice_clk_max;
 	u32 ice_clk_min;
 	struct sdhci_msm_pm_qos_data pm_qos_data;
+	bool sdr104_wa;
 	bool core_3_0v_support;
 	char *name;		//ASUS_BSP Deeo : add host_name to pdata +++
 };
@@ -216,6 +217,8 @@ struct sdhci_msm_host {
 	bool pm_qos_group_enable;
 	struct sdhci_msm_pm_qos_irq pm_qos_irq;
 	bool tuning_in_progress;
+	bool core_3_0v_support;
+	bool pltfm_init_done;
 };
 
 extern char *saved_command_line;

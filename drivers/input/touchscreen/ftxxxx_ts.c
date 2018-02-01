@@ -1286,73 +1286,7 @@ void focal_cover_switch(bool plugin)
 	return;
 
 }
-static void focal_keyboard_mode_switch_work(struct work_struct *work)
-{
 
-	uint8_t buf[2] = {0};
-
-	int err = 0;
-
-	wake_lock(&ftxxxx_ts->wake_lock);
-
-	mutex_lock(&ftxxxx_ts->g_device_mutex);
-
-	if (focal_init_success == 1) {
-		if (ftxxxx_ts->keyboard_mode_eable) {
-
-			buf[0] = 0xE9;
-
-			buf[1] = 0x01;
-
-			err = ftxxxx_write_reg(ftxxxx_ts->client, buf[0], buf[1]);
-
-			if (err < 0)
-				printk("[Focal][TOUCH_ERR] %s : keyboard mode enable fail ! \n", __func__);
-			else
-				printk("[Focal][Touch] %s : keyboard mode enable ! \n", __func__);
-
-		} else {
-
-			buf[0] = 0xE9;
-
-			buf[1] = 0x00;
-
-			err = ftxxxx_write_reg(ftxxxx_ts->client, buf[0], buf[1]);
-
-			if (err < 0)
-				printk("[Focal][TOUCH_ERR] %s : keyboard mode disable fail ! \n", __func__);
-			else
-				printk("[Focal][Touch] %s : keyboard mode disable ! \n", __func__);
-
-		}
-	}
-
-	mutex_unlock(&ftxxxx_ts->g_device_mutex);
-
-	wake_unlock(&ftxxxx_ts->wake_lock);
-
-	return;
-}
-
-void focal_keyboard_switch(bool plugin)
-{
-
-	if (ftxxxx_ts == NULL) {
-		printk("[Focal][TOUCH_ERR] %s : ftxxxx_ts is null, skip \n", __func__);
-		return;
-	}
-
-	if (ftxxxx_ts->init_success == 1) {
-		if (plugin)
-			ftxxxx_ts->keyboard_mode_eable = 1; /*keyboard display*/
-		else
-			ftxxxx_ts->keyboard_mode_eable = 0;	/*no keyboard */
-
-		queue_delayed_work(ftxxxx_ts->init_check_ic_wq, &ftxxxx_ts->keyboard_mode_switch_work, msecs_to_jiffies(10));
-	}
-	return;
-
-}
 static void focal_glove_mode_switch_work(struct work_struct *work)
 {
 
@@ -2288,7 +2222,6 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	ftxxxx_ts->usb_status = 0;
 	ftxxxx_ts->glove_mode_eable = 0;
 	ftxxxx_ts->cover_mode_eable = 0;
-	ftxxxx_ts->keyboard_mode_eable=0;
 	ftxxxx_ts->dclick_mode_eable = 0;
 	ftxxxx_ts->swipeup_mode_eable = 0;
 	ftxxxx_ts->gesture_mode_eable = 0;
@@ -2448,9 +2381,7 @@ static int ftxxxx_ts_probe(struct i2c_client *client, const struct i2c_device_id
 	INIT_DELAYED_WORK(&ftxxxx_ts->init_check_ic_work, focal_init_check_ic_work);
 
 	INIT_DELAYED_WORK(&ftxxxx_ts->glove_mode_switch_work, focal_glove_mode_switch_work);
-	
-	INIT_DELAYED_WORK(&ftxxxx_ts->keyboard_mode_switch_work, focal_keyboard_mode_switch_work);
-	
+
 	INIT_DELAYED_WORK(&ftxxxx_ts->cover_mode_switch_work, focal_cover_mode_switch_work);
 
 	ftxxxx_ts->touch_sdev.name = "touch";

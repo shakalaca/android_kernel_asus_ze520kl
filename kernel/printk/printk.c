@@ -261,7 +261,6 @@ static void *memcpy_nc(void *dest, const void *src, size_t n)
 static int write_to_asus_log_buffer(const char *text, size_t text_len,
 				enum log_flags lflags) {
 	static ulong log_write_index = 0; /* the index to write the log in asus log buffer */
-	ulong *printk_buffer_slot2_addr = (ulong *)PRINTK_BUFFER_SLOT2; /* ASUS_BSP Paul +++ */
 
 	if (!asus_log_buf) {
 		return -1;
@@ -286,8 +285,6 @@ static int write_to_asus_log_buffer(const char *text, size_t text_len,
 		asus_log_buf[log_write_index++] = '\n';
 		log_write_index = log_write_index % PRINTK_BUFFER_SLOT_SIZE;
 	}
-
-	*(printk_buffer_slot2_addr + 1) = log_write_index; /* ASUS_BSP Paul +++ */
 
 	return text_len;
 }
@@ -2148,9 +2145,9 @@ bool console_suspend_enabled = true;
 //[PM]+++Used for Vddmin issue
 bool is_ramdump_enabled = 0;
 bool is_vminTrace_enabled = 0;
-static int Last_count = 0;
-static int vmin_count = 0;
-extern u32  this_count;
+static int vmin_Last_count = 0;
+static int trigger_DL_mode_count = 0;
+extern u32  vmin_this_count;
 //[PM]---Used for Vddmin issue
 EXPORT_SYMBOL(console_suspend_enabled);
 
@@ -2195,21 +2192,27 @@ void resume_console(void)
 	int i;
 	nSuspendInProgress = 0;
 	ASUSEvtlog("[UTS] System Resume\n");
-	printk("[PM]The status of RAMDUMP : %d\n", is_ramdump_enabled);
+	if (is_ramdump_enabled) {
+		printk("[PM] QPST RAMDUMP ENABLE: %s\n", is_ramdump_enabled ? "True" : "False");
+		printk("[PM] vminTrace ENABLE(IRQ200) : %s\n", is_vminTrace_enabled ? "True" : "False");
+	}
 	//[+++]Show GPIO,IRQ, SPMI wakeup information in AsusEvtlog
+
+/* [PM] pm_pwrcs_ret can check dpm_suspend state for resume_console in printk.c */
+
 	if (pm_pwrcs_ret) {
 		if (is_ramdump_enabled && is_vminTrace_enabled) {
-			printk("[PM] this_count =%d, Last_count = %d, vmin_count = %d\n", this_count, Last_count, vmin_count);
-			if (0 == (this_count - Last_count)) {
-				vmin_count++;
-				if (5 == vmin_count) {
+			printk("[PM] vmin_this_count =%d, vmin_Last_count = %d, trigger_DL_mode_count = %d\n", vmin_this_count, vmin_Last_count, trigger_DL_mode_count);
+			if (0 == (vmin_this_count - vmin_Last_count)) {
+				trigger_DL_mode_count++;
+				if (5 == trigger_DL_mode_count) {
 					ASUSEvtlog("[PM] Vmin can't count, download mode triggered\n");
 					BUG_ON(1);
 				}
 			}else {
-				vmin_count = 0;
+				trigger_DL_mode_count = 0;
 			}
-			Last_count = this_count;
+			vmin_Last_count = vmin_this_count;
 		}
 		if (gpio_irq_cnt>0) {
 			for (i=0;i<gpio_irq_cnt;i++)
@@ -2218,7 +2221,7 @@ void resume_console(void)
 		}
 		if (gic_irq_cnt>0) {
 			for (i=0;i<gic_irq_cnt;i++) {
-				ASUSEvtlog("[PM] IRQs triggered: %d", gic_resume_irq[i]);
+				ASUSEvtlog("[PM] IRQs triggered: %d\n", gic_resume_irq[i]);
 			}
 			gic_irq_cnt=0;  //clear log count
 		}

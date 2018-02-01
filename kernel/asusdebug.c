@@ -919,7 +919,7 @@ static void do_write_event_worker(struct work_struct *work)
 	if (IS_ERR((const void *)(ulong)g_hfileEvtlog)) {
 		long size;
 
-		g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0444);
+		g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0666);
 		sys_chown(ASUS_EVTLOG_PATH ".txt", AID_SDCARD_RW, AID_SDCARD_RW);
 
 		size = sys_lseek(g_hfileEvtlog, 0, SEEK_END);
@@ -927,7 +927,7 @@ static void do_write_event_worker(struct work_struct *work)
 			sys_close(g_hfileEvtlog);
 			sys_rmdir(ASUS_EVTLOG_PATH "_old.txt");
 			sys_rename(ASUS_EVTLOG_PATH ".txt", ASUS_EVTLOG_PATH "_old.txt");
-			g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0444);
+			g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0666);
 		}
         // ASUS_BSP +++
         if (warm_reset_value) {
@@ -957,7 +957,7 @@ static void do_write_event_worker(struct work_struct *work)
 		char *pchar;
 		long size;
 
-		g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0444);
+		g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0666);
 		sys_chown(ASUS_EVTLOG_PATH ".txt", AID_SDCARD_RW, AID_SDCARD_RW);
 
 		size = sys_lseek(g_hfileEvtlog, 0, SEEK_END);
@@ -965,7 +965,7 @@ static void do_write_event_worker(struct work_struct *work)
 			sys_close(g_hfileEvtlog);
 			sys_rmdir(ASUS_EVTLOG_PATH "_old.txt");
 			sys_rename(ASUS_EVTLOG_PATH ".txt", ASUS_EVTLOG_PATH "_old.txt");
-			g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0444);
+			g_hfileEvtlog = sys_open(ASUS_EVTLOG_PATH ".txt", O_CREAT | O_RDWR | O_SYNC, 0666);
 		}
 
 		while (g_Asus_Eventlog_read != g_Asus_Eventlog_write) {
@@ -1035,14 +1035,14 @@ static void do_write_subsys_worker(struct work_struct *work)
 {
 	int hfile = -MAX_ERRNO;
 
-	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_WRONLY|O_SYNC, 0444);
+	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_WRONLY|O_SYNC, 0666);
 	if(!IS_ERR((const void *)(ulong)hfile)) {
 		if (sys_lseek(hfile, 0, SEEK_END) >= SZ_128K) {
 			ASUSEvtlog("[SSR-Info] SubSys is versy ill\n");
 			sys_close(hfile);
 			sys_unlink(SUBSYS_HEALTH_MEDICAL_TABLE_PATH"_old.txt");
 			sys_rename(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", SUBSYS_HEALTH_MEDICAL_TABLE_PATH"_old.txt");
-			hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_RDWR|O_SYNC, 0444);
+			hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_RDWR|O_SYNC, 0666);
 		}
 		sys_write(hfile, g_SubSys_W_Buf, strlen(g_SubSys_W_Buf));
 		sys_fsync(hfile);
@@ -1064,7 +1064,7 @@ static void do_count_subsys_worker(struct work_struct *work)
 	int  Counts[SUBSYS_NUM] = { 0 };/* MODEM, WCNSS, ADSP, VENUS, A506_ZAP */
 	int  reboot_count = 0;
 
-	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_RDONLY|O_SYNC, 0444);
+	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH".txt", O_CREAT|O_RDONLY|O_SYNC, 0666);
 	if(!IS_ERR((const void *)(ulong)hfile)) {
 		do {
 			memset(r_buf, 0, sizeof(r_buf));
@@ -1088,7 +1088,7 @@ static void do_count_subsys_worker(struct work_struct *work)
 		sys_close(hfile);
 	}
 
-	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH"_old.txt", O_RDONLY|O_SYNC, 0444);
+	hfile = sys_open(SUBSYS_HEALTH_MEDICAL_TABLE_PATH"_old.txt", O_RDONLY|O_SYNC, 0666);
 	if(!IS_ERR((const void *)(ulong)hfile)) {
 		do {
 			memset(r_buf, 0, sizeof(r_buf));
@@ -1491,6 +1491,7 @@ static int __init proc_asusdebug_init(void)
 	fake_mutex.name = " fake_mutex";
 	strcpy(fake_completion.name, " fake_completion");
 	fake_rtmutex.owner = current;
+	ASUSEvtlog_workQueue = create_singlethread_workqueue("ASUSEVTLOG_WORKQUEUE");
 
        	/*ASUS-BBSP SubSys Health Record+++*/
 	proc_create("SubSysHealth", S_IRWXUGO, NULL, &proc_SubSysHealth_operations);

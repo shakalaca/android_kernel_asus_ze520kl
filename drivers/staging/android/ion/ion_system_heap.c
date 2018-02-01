@@ -30,7 +30,6 @@
 #include <linux/dma-mapping.h>
 #include <trace/events/kmem.h>
 #include <soc/qcom/secure_buffer.h>
-#include <linux/proc_fs.h>
 
 static gfp_t high_order_gfp_flags = (GFP_HIGHUSER | __GFP_NOWARN |
 				     __GFP_NO_KSWAPD | __GFP_NORETRY)
@@ -42,8 +41,6 @@ static const unsigned int orders[] = {9, 8, 4, 0};
 #else
 static const unsigned int orders[] = {0};
 #endif
-
-struct ion_heap *heap_internal;
 
 static const int num_orders = ARRAY_SIZE(orders);
 static int order_to_index(unsigned int order)
@@ -691,7 +688,6 @@ struct ion_heap *ion_system_heap_create(struct ion_platform_heap *unused)
 		goto err_create_cached_pools;
 
 	heap->heap.debug_show = ion_system_heap_debug_show;
-	heap_internal = &heap->heap;
 	return &heap->heap;
 
 err_create_cached_pools:
@@ -830,44 +826,6 @@ static struct ion_heap_ops kmalloc_ops = {
 	.map_user = ion_heap_map_user,
 };
 
-static int ion_status_proc_read(struct seq_file *buf, void *v)
-{
-	struct ion_system_heap *sys_heap = container_of(heap_internal, struct ion_system_heap, heap);
-	unsigned long uncached_total = 0;
-	unsigned long cached_total = 0;
-	int i;
-
-	for (i = 0; i < num_orders; i++) {
-		struct ion_page_pool *pool = sys_heap->uncached_pools[i];
-
-		uncached_total += (1 << pool->order) * PAGE_SIZE * pool->high_count;
-		uncached_total += (1 << pool->order) * PAGE_SIZE * pool->low_count;
-	}
-
-	for (i = 0; i < num_orders; i++) {
-		struct ion_page_pool *pool = sys_heap->cached_pools[i];
-		cached_total += (1 << pool->order) * PAGE_SIZE * pool->high_count;
-		cached_total += (1 << pool->order) * PAGE_SIZE * pool->low_count;
-	}
-
-	pr_info("[ION] uncached pool = %lu cached pool = %lu, pool total (uncached + cached) = %lu\n", uncached_total, cached_total, uncached_total + cached_total);
-
-	return seq_printf(buf, "%lu\n", uncached_total + cached_total);
-}
-
-static int ion_status_proc_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, ion_status_proc_read, NULL);
-}
-
-static struct file_operations proc_ion_cache_pool_operations = {
-	.owner = THIS_MODULE,
-	.open = ion_status_proc_open,
-	.read = seq_read,
-	.release = single_release,
-	.write = NULL,
-};
-
 struct ion_heap *ion_system_contig_heap_create(struct ion_platform_heap *unused)
 {
 	struct ion_heap *heap;
@@ -877,8 +835,6 @@ struct ion_heap *ion_system_contig_heap_create(struct ion_platform_heap *unused)
 		return ERR_PTR(-ENOMEM);
 	heap->ops = &kmalloc_ops;
 	heap->type = ION_HEAP_TYPE_SYSTEM_CONTIG;
-
-	proc_create("ION_Cache_Pool", S_IRWXUGO, NULL, &proc_ion_cache_pool_operations);
 	return heap;
 }
 
