@@ -1826,8 +1826,10 @@ asmlinkage int vprintk_emit(int facility, int level,
 	ts = local_clock();
 	time_size = print_time(ts, time_buf);
 	strncpy(text, time_buf, time_size);
-	strncpy(text+time_size, text1, text_len);
+	strncpy(text+time_size, text1, (LOG_LINE_MAX - time_size));
 	text_len += time_size;
+	if(text_len > LOG_LINE_MAX)
+		text_len = LOG_LINE_MAX ;
 
 	if (level == -1)
 		level = default_message_loglevel;

@@ -10622,7 +10622,6 @@ void read_BR_countrycode_work(struct work_struct *work)
 		printk("[BAT][CHG] Read (%s) error\n", COUNTRY_CODE_PATH);
 		deinitKernelEnv();
 		filp_close(fd, NULL);
-		kfree(buf);
 		return;
 	}
 	buf[readlen] = '\0';

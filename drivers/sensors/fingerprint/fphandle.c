@@ -1151,7 +1151,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #ifdef AP_CONTROL_CLK
 	unsigned int speed = 0;
 #endif
-	FUNC_ENTRY();
+//	FUNC_ENTRY();
 
 	if (_IOC_TYPE(cmd) != GF_IOC_MAGIC)
 		return -ENODEV;
@@ -1267,7 +1267,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	}
 
-	FUNC_EXIT();
+//	FUNC_EXIT();
 	return retval;
 }
 

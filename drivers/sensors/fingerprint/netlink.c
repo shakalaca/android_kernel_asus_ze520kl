@@ -47,7 +47,7 @@ void sendnlmsg(char *message)
 
     message[slen]= '\0';
     memcpy(NLMSG_DATA(nlh),message,slen+1);
-    printk("my_net_link:send message %d.\n",*(char *)NLMSG_DATA(nlh));
+    //printk("my_net_link:send message %d.\n",*(char *)NLMSG_DATA(nlh));
 
     netlink_unicast(nl_sk,skb_1,pid,MSG_DONTWAIT);
 
