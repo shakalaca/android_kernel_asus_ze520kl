@@ -5963,8 +5963,6 @@ void jeita_judge_work(struct work_struct *work)
 	u8 FV_CFG_reg_value = 0;	//set float_voltage_reg_value
 	u8 FCC_reg_value = 0;		//set fast_charge_current_reg_value
 	u8 charging_enable = 0;
-	//u8 overlimit = 0;
-	u8 charging_status = 0;
 	u8 reg;
 	bool demo_app_status_flag = false;
 
@@ -6111,35 +6109,17 @@ void jeita_judge_work(struct work_struct *work)
 		break;
 	}
 
-//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 70% in Factory +++
-	/*if (factory_build_flag) {
-		if (en_charging_limit) {
-			if (get_prop_batt_capacity(smbchg_dev) >= 70) {
-				overlimit = EN_BAT_CHG_EN_COMMAND_FALSE;
-				printk("[BAT][CHG] En_charging_limit triggered & Capacity > 70, diasble charging!\n");
-			} else {
-				overlimit = EN_BAT_CHG_EN_COMMAND_TRUE;
-			}
-		} else {
-			overlimit = EN_BAT_CHG_EN_COMMAND_TRUE;
-		}
-		charging_status = (charging_enable | overlimit);
-	} else {
-		charging_status = charging_enable;
-	}*/
-//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 70% in Factory ---
-
 //ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 60% in Demo APP  +++
 	if (demo_app_property_flag) {
 		demo_app_status_flag = ADF_check_status();
 		if (demo_app_status_flag) {
 			if (get_prop_batt_capacity(smbchg_dev) > 60) {
 				smbchg_usb_suspend(smbchg_dev, true);
-				charging_status = EN_BAT_CHG_EN_COMMAND_FALSE;
+				charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
 				printk("[BAT][CHG] Demo APP triggered & Capacity > 60, suspend charger\n");
 			} else if (get_prop_batt_capacity(smbchg_dev) >= 58) {
 				smbchg_usb_suspend(smbchg_dev, false);
-				charging_status = EN_BAT_CHG_EN_COMMAND_FALSE;
+				charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
 				printk("[BAT][CHG] Demo APP triggered & Capacity >= 58, stop battery charging\n");
 			} else {
 				smbchg_usb_suspend(smbchg_dev, false);
@@ -6152,9 +6132,9 @@ void jeita_judge_work(struct work_struct *work)
 	}
 //ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 60% in Demo APP  ---
 
-	printk("[BAT][CHG] JEITA_charging_status = %d\n", charging_status);
+	printk("[BAT][CHG] JEITA_charging_status = %d\n", charging_enable);
 
-	rc = jeita_status_regs_write(charging_status, FV_CFG_reg_value, FCC_reg_value);
+	rc = jeita_status_regs_write(charging_enable, FV_CFG_reg_value, FCC_reg_value);
 	if (rc < 0)
 		printk("[BAT][CHG] Couldn't write jeita_status_register rc = %d\n", rc);
 
