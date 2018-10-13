@@ -119,6 +119,10 @@ bool call_from_thermal_engine = 0;
 int AIN2_Value = 0;
 bool battery_dc_property = 0;
 bool stop_thermal_flag = 0;
+volatile bool ultra_bat_life_flag = 0;
+int g_charger_mode_full_time = 0;
+volatile bool g_cos_over_full_flag = 0;
+int g_ultra_cos_spec_time = 2880;
 //bool boot_sdp_rerun_apsd_flag = 0;
 
 //ASUS BSP Austin_T : Add for ASUSEvtlog "enable_voters"
@@ -1786,7 +1790,10 @@ static void smbchg_usb_update_online_work(struct work_struct *work)
 	if (usb_alert_flag) {
 		printk("[BAT][CHG] USB_alert_flag = 1, set usb online = 0\n");
 		online = 0;
-	}
+	} else if (g_Charger_mode && g_cos_over_full_flag)
+		online = 1;
+	else if (ultra_bat_life_flag && chip->usb_present)
+		online = 1;
 
 	mutex_lock(&chip->usb_set_online_lock);
 	if (chip->usb_online != online) {
@@ -4868,6 +4875,81 @@ static ssize_t demo_app_property_show(struct device *dev, struct device_attribut
        return sprintf(buf, "%d\n", demo_app_property_flag);
 }
 
+#define CACHE_CHG_LIMIT_PATH	"/cache/charger/CHGLimit"
+void write_CHGLimit_value(int input)
+{
+	struct file *fp = NULL;
+	mm_segment_t old_fs;
+	loff_t pos_lsts = 0;
+	char buf[8] = "";
+
+	sprintf(buf, "%d", input);
+
+	fp = filp_open(CACHE_CHG_LIMIT_PATH, O_RDWR | O_CREAT | O_SYNC, 0777);
+	if (IS_ERR_OR_NULL(fp)) {
+		printk("[BAT][CHG] %s: open (%s) fail\n", __func__, CACHE_CHG_LIMIT_PATH);
+		return;
+	}
+
+	/*For purpose that can use read/write system call*/
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	vfs_write(fp, buf, 8, &pos_lsts);
+
+	set_fs(old_fs);
+	filp_close(fp, NULL);
+
+	printk("[BAT][CHG] %s: %s\n", __func__, buf);
+}
+/* --- Add Maximun Battery Lifespan --- */
+
+static ssize_t ultra_bat_life_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	int tmp = 0;
+	int rc;
+
+	tmp = buf[0] - 48;
+
+	if (tmp == 0) {
+		ultra_bat_life_flag = false;
+		printk("[BAT][CHG] ultra_bat_life_flag = 0, cancel CHG_Limit\n");
+	} else if (tmp == 1) {
+		ultra_bat_life_flag = true;
+		write_CHGLimit_value(0);
+		printk("[BAT][CHG] ultra_bat_life_flag = 1, CHG_Limit = 60\n");
+		if (get_prop_batt_capacity(smbchg_dev) > 60 && is_smbchg_charging(smbchg_dev)) {
+			rc = smbchg_usb_suspend(smbchg_dev, true);
+			printk("[BAT][CHG] Capcity > 60, input suspend\n");
+		}
+	}
+
+	return len;
+}
+
+static ssize_t ultra_bat_life_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", ultra_bat_life_flag);
+}
+
+static ssize_t ultra_cos_spec_time_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	int tmp;
+
+	tmp = simple_strtol(buf, NULL, 10);
+	g_ultra_cos_spec_time = tmp;
+	printk("[BAT][CHG] g_ultra_cos_spec_time set to = %d", g_ultra_cos_spec_time);
+
+	return len;
+}
+
+static ssize_t ultra_cos_spec_time_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", g_ultra_cos_spec_time);
+}
+
 static DEVICE_ATTR(factorybuild_flag, 0664, factorybuild_flag_show, factorybuild_flag_store);
 static DEVICE_ATTR(chg_dump, 0664, chg_dump_show, NULL);
 static DEVICE_ATTR(batt_info, 0664, batt_info_show, NULL);
@@ -4880,6 +4962,8 @@ static DEVICE_ATTR(BR_countrycode, 0664, BR_countrycode_flag_show, BR_countrycod
 static DEVICE_ATTR(boot_completed, 0664, boot_completed_show, boot_completed_store);
 static DEVICE_ATTR(special_connector, 0664, special_connector_show, special_connector_store);
 static DEVICE_ATTR(demo_app_property, 0664, demo_app_property_show, demo_app_property_store);
+static DEVICE_ATTR(ultra_bat_life, 0664, ultra_bat_life_show, ultra_bat_life_store);
+static DEVICE_ATTR(ultra_cos_spec_time, 0664, ultra_cos_spec_time_show, ultra_cos_spec_time_store);
 
 static struct attribute *dump_reg_attrs[] = {
 	&dev_attr_factorybuild_flag.attr,
@@ -4894,6 +4978,8 @@ static struct attribute *dump_reg_attrs[] = {
 	&dev_attr_boot_completed.attr,
 	&dev_attr_special_connector.attr,
 	&dev_attr_demo_app_property.attr,
+	&dev_attr_ultra_bat_life.attr,
+	&dev_attr_ultra_cos_spec_time.attr,
 	NULL
 };
 
@@ -5541,6 +5627,7 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	Thermal_Level_old = 0;
 	smbchg_charging_en(chip, true);
 	AIN2_Value = 0;
+	g_cos_over_full_flag = 0;
 
 	smbchg_relax(chip, PM_ADAPTER_JUDGE);
 	smbchg_relax(chip, PM_ADC_JUDGE);
@@ -5965,6 +6052,10 @@ void jeita_judge_work(struct work_struct *work)
 	u8 charging_enable = 0;
 	u8 reg;
 	bool demo_app_status_flag = false;
+	bool demo_stop_chg_flag = 0;
+	int bat_capacity;
+	bool bat_life_stop_chg_flag = 0;
+	bool cos_over_full_stop_chg_flag = 0;
 
 	if (!smbchg_dev) {
 		pr_err("%s: smbchg_dev is null due to driver probed isn't ready\n",
@@ -5976,8 +6067,10 @@ void jeita_judge_work(struct work_struct *work)
 		printk("[BAT][CHG] No inputs present, skipping\n");
 		return;
 	}
+	
+	bat_capacity = get_prop_batt_capacity(smbchg_dev);
 
-	if (get_prop_batt_capacity(smbchg_dev) >= 1 && smbchg_dev->CHG_TYPE_flag == UNDEFINED) {
+	if (bat_capacity >= 1 && smbchg_dev->CHG_TYPE_flag == UNDEFINED) {
 
 		rc = gpio_direction_output(global_gpio->ADCPWREN, 0);
 		if (ret)
@@ -6109,27 +6202,47 @@ void jeita_judge_work(struct work_struct *work)
 		break;
 	}
 
-//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 60% in Demo APP  +++
-	if (demo_app_property_flag) {
-		demo_app_status_flag = ADF_check_status();
-		if (demo_app_status_flag) {
-			if (get_prop_batt_capacity(smbchg_dev) > 60) {
-				smbchg_usb_suspend(smbchg_dev, true);
-				charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
-				printk("[BAT][CHG] Demo APP triggered & Capacity > 60, suspend charger\n");
-			} else if (get_prop_batt_capacity(smbchg_dev) >= 58) {
-				smbchg_usb_suspend(smbchg_dev, false);
-				charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
-				printk("[BAT][CHG] Demo APP triggered & Capacity >= 58, stop battery charging\n");
-			} else {
-				smbchg_usb_suspend(smbchg_dev, false);
+// Add Maximun Battery Lifespan +++
+	if (g_Charger_mode) {
+		if (bat_capacity == 100 && !g_cos_over_full_flag) {
+			g_charger_mode_full_time ++;
+			if (g_charger_mode_full_time >= g_ultra_cos_spec_time) {
+				write_CHGLimit_value(1);
+				g_cos_over_full_flag = true;
 			}
+		}
+	}
+// Add Maximun Battery Lifespan ---
+
+//ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 60% in Demo APP  +++
+	if (demo_app_property_flag || ultra_bat_life_flag || g_cos_over_full_flag) {
+		printk("[BAT][CHG] %s:demo_prop = %d, ultra_bat_prop = %d, cos_over_full = %d\n", __func__,
+			demo_app_property_flag, ultra_bat_life_flag, g_cos_over_full_flag);
+		demo_app_status_flag = ADF_check_status();
+		if ((demo_app_status_flag || ultra_bat_life_flag || g_cos_over_full_flag) && bat_capacity > 60) {
+			smbchg_usb_suspend(smbchg_dev, true);
+			demo_stop_chg_flag = demo_app_status_flag;
+			bat_life_stop_chg_flag = ultra_bat_life_flag;
+			cos_over_full_stop_chg_flag = g_cos_over_full_flag;
+		} else if (demo_app_status_flag && bat_capacity >= 58) {
+			smbchg_usb_suspend(smbchg_dev, false);
+			demo_stop_chg_flag = true;
 		} else {
 			smbchg_usb_suspend(smbchg_dev, false);
 		}
 	} else {
 		smbchg_usb_suspend(smbchg_dev, false);
 	}
+
+//Add ultra battery life & demo app judgment +++
+	if (demo_stop_chg_flag || bat_life_stop_chg_flag || cos_over_full_stop_chg_flag) {
+		printk("[BAT][CHG] %s:Capacity = %d, Stop charging, demo = %d, bat_life = %d, cos_full = %d\n",
+			__func__, bat_capacity, demo_stop_chg_flag,
+			bat_life_stop_chg_flag, cos_over_full_stop_chg_flag);
+		charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
+	}
+//Add ultra battery life & demo app judgment ---
+
 //ASUS BSP Austin_Tseng : Disable battery charging when capacity is over 60% in Demo APP  ---
 
 	printk("[BAT][CHG] JEITA_charging_status = %d\n", charging_enable);
